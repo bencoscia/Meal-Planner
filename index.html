@@ -179,7 +179,7 @@
 
 <script>
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
-const ANTHROPIC_API_KEY = "YOUR_API_KEY_HERE"; // Replace with your Anthropic API key
+const getGeminiKey = () => localStorage.getItem("geminiKey") || "";
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const CATEGORIES = ["Produce","Protein","Dairy","Grains","Pantry","Frozen","Other"];
@@ -259,7 +259,7 @@ const state = {
   expandedDay: null,
   binId: "",
   apiKey: "",
-  settingsDraft: {binId:"",apiKey:""},
+  settingsDraft: {binId:"",apiKey:"",geminiKey:""},
   syncing: false,
   lastSynced: null,
   syncError: "",
@@ -277,7 +277,7 @@ function loadAll() {
   state.fixedMeals  = load("fixedMeals", state.fixedMeals);
   state.binId       = load("binId", "");
   state.apiKey      = load("apiKey", "");
-  state.settingsDraft = {binId: state.binId, apiKey: state.apiKey};
+  state.settingsDraft = {binId: state.binId, apiKey: state.apiKey, geminiKey: localStorage.getItem('geminiKey')||''};
 }
 
 // ─── JSONBIN SYNC ─────────────────────────────────────────────────────────────
@@ -378,6 +378,7 @@ function saveSettings() {
   state.binId = state.settingsDraft.binId;
   state.apiKey = state.settingsDraft.apiKey;
   save("binId", state.binId); save("apiKey", state.apiKey);
+  if (state.settingsDraft.geminiKey) localStorage.setItem("geminiKey", state.settingsDraft.geminiKey);
   state.showSettings = false;
   if (state.binId && state.apiKey) fetchBin();
   render();
@@ -418,10 +419,19 @@ async function generatePlan() {
     + '{"days":[{"day":"Monday","meals":{"breakfast":{"name":"...","ingredients":["..."],"recipe":["Step 1..."]},"lunch":{"name":"...","ingredients":["..."],"recipe":["Step 1..."]},"dinner":{"name":"...","ingredients":["..."],"recipe":["Step 1..."]}}}],"shopping_list":["item1"]}';
 
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const geminiKey = getGeminiKey();
+    if (!geminiKey) {
+      state.generateError = "No Gemini API key set. Please add it in ⚙ Settings.";
+      state.loading = false; render(); return;
+    }
+    const geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + geminiKey;
+    const res = await fetch(geminiUrl, {
       method: "POST",
-      headers: {"Content-Type":"application/json","x-api-key": ANTHROPIC_API_KEY, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access": "true"},
-      body: JSON.stringify({model:"claude-sonnet-4-20250514", max_tokens:4000, messages:[{role:"user",content:prompt}]})
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        contents: [{parts: [{text: prompt}]}],
+        generationConfig: {temperature: 0.7, maxOutputTokens: 4000}
+      })
     });
     if (!res.ok) {
       const t = await res.text();
@@ -429,11 +439,11 @@ async function generatePlan() {
       state.loading = false; render(); return;
     }
     const data = await res.json();
-    if (!data.content) {
+    if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
       state.generateError = "Unexpected response: " + JSON.stringify(data).slice(0,200);
       state.loading = false; render(); return;
     }
-    const text = data.content.map(b=>b.text||"").join("");
+    const text = data.candidates[0].content.parts[0].text;
     const clean = text.replace(/```json|```/g,"").trim();
     state.mealPlan = JSON.parse(clean);
     state.step = 3;
@@ -567,6 +577,7 @@ function renderPreferences() {
     + '<button class="btn btn-primary" style="font-size:13px;padding:6px 14px" onclick="addFixedMeal()">Add</button>'
     + '</div></div>' : "";
 
+  const noKeyWarning = !getGeminiKey() ? '<div class="warn-banner">⚠️ No Gemini API key set — add it in ⚙ Settings before generating a plan.</div>' : "";
   const errHtml = state.generateError ? '<div class="error-banner">⚠️ '+state.generateError+'</div>' : "";
 
   return '<div class="content">'
@@ -597,7 +608,7 @@ function renderPreferences() {
     + fixedItems + fixedForm
     + '</div>'
 
-    + errHtml
+    + noKeyWarning + errHtml
     + '<div class="nav-row">'
     + '<button class="btn btn-secondary" onclick="state.step=1;render()">← Back</button>'
     + '<button class="btn btn-primary btn-lg" onclick="generatePlan()" '+(state.loading?"disabled":"")+'>'+( state.loading?dots()+" Generating…":"✨ Generate Meal Plan")+'</button>'
@@ -668,13 +679,16 @@ function renderSettings() {
     + '<div class="settings-title">⚙️ JSONBin Settings</div>'
     + '<p class="settings-desc">Connect a JSONBin bin to sync your inventory across devices — no account needed for whoever you share the app with.<br><br>'
     + '<a href="https://jsonbin.io" target="_blank" style="color:var(--accent)">→ Create a free JSONBin account</a>, make a new bin with <code style="background:var(--bg);padding:1px 6px;border-radius:4px;font-size:12px">{"inventory":[]}</code>, then paste your credentials below.</p>'
+    + '<div class="field"><label>Gemini API Key</label>'
+    + '<input type="password" placeholder="AIza..." value="'+state.settingsDraft.geminiKey+'" oninput="state.settingsDraft.geminiKey=this.value.trim()">'
+    + '<div style="font-size:12px;color:var(--muted);margin-top:4px">Get yours free at <a href="https://aistudio.google.com" target="_blank" style="color:var(--accent)">aistudio.google.com</a> → API Keys</div></div>'
     + '<div class="field"><label>Bin ID</label>'
     + '<input placeholder="e.g. 64a1b2c3d4e5f6..." value="'+state.settingsDraft.binId+'" oninput="state.settingsDraft.binId=this.value.trim()"></div>'
     + '<div class="field"><label>Master Key (API Key)</label>'
     + '<input type="password" placeholder="$2a$10$..." value="'+state.settingsDraft.apiKey+'" oninput="state.settingsDraft.apiKey=this.value.trim()"></div>'
     + '<div class="settings-actions">'
     + '<button class="btn btn-secondary" onclick="state.showSettings=false;state.settingsDraft={binId:state.binId,apiKey:state.apiKey};render()">Cancel</button>'
-    + '<button class="btn btn-primary" onclick="saveSettings()" '+(state.settingsDraft.binId&&state.settingsDraft.apiKey?"":"disabled")+'>Save & Connect</button>'
+    + '<button class="btn btn-primary" onclick="saveSettings()" '+(state.settingsDraft.geminiKey?"":"disabled")+'>Save</button>'
     + '</div></div></div>';
 }
 
@@ -695,7 +709,7 @@ function render() {
 }
 
 function toggleDay(day) { state.expandedDay = state.expandedDay===day?null:day; render(); }
-function openSettings() { state.settingsDraft={binId:state.binId,apiKey:state.apiKey}; state.showSettings=true; render(); }
+function openSettings() { state.settingsDraft={binId:state.binId,apiKey:state.apiKey,geminiKey:localStorage.getItem('geminiKey')||''}; state.showSettings=true; render(); }
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 loadAll();
