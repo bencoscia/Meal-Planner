@@ -123,6 +123,70 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .sub-label{font-size:14px;font-weight:500;margin-bottom:8px;}
 .sub-desc{font-size:13px;color:var(--muted);}
 .section-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;}
+
+/* ── Responsive / Mobile ─────────────────────────────────────────── */
+@media(max-width:600px){
+  .content{padding:16px 14px 80px;}
+  .header{padding:14px 16px 12px;}
+  .header h1{font-size:22px;}
+  .stepper{padding:10px 14px;}
+  .step-label{font-size:11px;}
+  .step-circle{width:24px;height:24px;font-size:11px;}
+  .section-title{font-size:19px;}
+
+  /* Add row stacks vertically on mobile */
+  .add-row{flex-direction:column;}
+  .add-row .fi{width:100%!important;flex:none!important;}
+  .add-row .btn{width:100%;justify-content:center;}
+
+  /* Inventory chips slightly larger tap area */
+  .inv-chip{padding:6px 12px 6px 14px;font-size:14px;}
+
+  /* Dietary grid 2 cols on mobile */
+  .diet-grid{grid-template-columns:1fr 1fr;}
+
+  /* Member rows stack */
+  .member-row{flex-wrap:wrap;}
+  .member-row .mname{flex:1 1 100%;}
+  .member-row .mtype{flex:1;}
+  .member-row .mage{flex:0 0 64px;}
+
+  /* Fixed form stacks */
+  .fixed-form-row{flex-direction:column;}
+  .fixed-form-row select{width:100%;}
+
+  /* Nav row stacks on very small screens */
+  .nav-row{flex-direction:column;gap:10px;}
+  .nav-row .btn{width:100%;justify-content:center;}
+
+  /* Plan header stacks */
+  .plan-header{flex-direction:column;}
+  .plan-header>div:last-child{display:flex;gap:8px;width:100%;}
+  .plan-header>div:last-child .btn{flex:1;justify-content:center;}
+
+  /* Day cards: hide meal badge previews on tiny screens, just show day name */
+  .day-preview{display:none;}
+  .day-header{padding:14px;}
+
+  /* Meal rows */
+  .meal-row{padding:12px 14px;}
+
+  /* Shopping grid */
+  .shopping-grid{gap:6px;}
+  .shop-item{font-size:13px;}
+
+  /* Settings panel full width */
+  .settings-panel{padding:20px 18px;}
+
+  /* Bottom sticky nav on mobile for easier thumb reach */
+  .mobile-nav{display:flex;position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--border);padding:10px 16px;gap:10px;z-index:50;box-shadow:0 -4px 20px rgba(0,0,0,0.08);}
+  .mobile-nav .btn{flex:1;justify-content:center;padding:12px;}
+  .desktop-nav{display:none;}
+}
+@media(min-width:601px){
+  .mobile-nav{display:none;}
+  .desktop-nav{display:flex;}
+}
 </style>
 </head>
 <body>
@@ -190,6 +254,8 @@ function loadAll(){
   S.avoid       = ls("avoid") ?? "banana, avocado";
   S.fixedMeals  = ls("fixedMeals") || S.fixedMeals;
   S.settingsDraft = {geminiKey: ls("geminiKey") || ""};
+  const savedPlan = ls("mealPlan");
+  if(savedPlan){ S.mealPlan=savedPlan; S.step=3; }
 }
 
 function geminiKey(){ return ls("geminiKey") || ""; }
@@ -226,10 +292,25 @@ function saveSettings(){
 }
 function toggleDay(day){ S.expandedDay=S.expandedDay===day?null:day; render(); }
 
+async function callGemini(key, prompt){
+  const res=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key="+key,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.7,maxOutputTokens:65536}})
+  });
+  if(!res.ok){ const t=await res.text(); throw new Error("API error "+res.status+": "+t.slice(0,200)); }
+  const data=await res.json();
+  const finishReason=data.candidates?.[0]?.finishReason;
+  const text=data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if(!text) throw new Error("No text in response: "+JSON.stringify(data).slice(0,200));
+  if(finishReason && finishReason!=="STOP") throw new Error("Generation stopped early: "+finishReason);
+  return text;
+}
+
 async function generatePlan(){
   const key=geminiKey();
   if(!key){ S.generateError="No Gemini API key — tap ⚙ Settings to add one."; render(); return; }
-  S.loading=true; S.generateError=""; S.mealPlan=null; render();
+  S.loading=true; S.generateError=""; S.mealPlan=null; ls("mealPlan", null); render();
 
   const inv=S.inventory.length
     ? S.inventory.map(i=>i.name+(i.qty?" ("+i.qty+")":"")+" ["+i.category+"]").join(", ")
@@ -243,33 +324,48 @@ async function generatePlan(){
     : "None";
   const avoid=S.avoid.trim()||"none";
 
-  const prompt="You are a helpful meal planner. Generate a 7-day meal plan.\n\n"
-    +"PANTRY INVENTORY: "+inv+"\n\n"
-    +"DIETARY PREFERENCES: "+diet+"\n\n"
-    +"INGREDIENTS TO AVOID: "+avoid+"\n\n"
-    +"FIXED MEALS (include these exactly, do not change them):\n"+fixed+"\n\n"
-    +"HOUSEHOLD: "+household+"\n"
-    +"Adjust for kid-friendliness. Children under 5 need softer textures and milder flavors.\n\n"
-    +"For each day Mon-Sun provide Breakfast, Lunch, Dinner.\n"
-    +"For each meal: name, ingredients (mark with * if NOT in pantry), recipe (2-3 SHORT steps, max 10 words each).\n"
-    +"Be concise. Keep ingredient lists to 5 items max.\n\n"
-    +"Respond ONLY in this JSON format, no markdown:\n"
-    +'{"days":[{"day":"Monday","meals":{"breakfast":{"name":"...","ingredients":["..."],"recipe":["..."]},'
-    +'"lunch":{"name":"...","ingredients":["..."],"recipe":["..."]},'
-    +'"dinner":{"name":"...","ingredients":["..."],"recipe":["..."]}}}],"shopping_list":["..."]}';
+  const context="PANTRY: "+inv+"\nDIET: "+diet+"\nAVOID: "+avoid
+    +"\nHOUSEHOLD: "+household+" (children under 5 need soft textures, mild flavors)"
+    +"\nFIXED MEALS:\n"+fixed;
+
+  const jsonFormat='{"breakfast":{"name":"...","ingredients":["ing1","*missing"],"recipe":["Step 1","Step 2"]},'
+    +'"lunch":{"name":"...","ingredients":["ing1"],"recipe":["Step 1","Step 2"]},'
+    +'"dinner":{"name":"...","ingredients":["ing1"],"recipe":["Step 1","Step 2"]}}';
+
+  const makePrompt=(days)=>
+    "You are a meal planner. Generate meals for: "+days.join(", ")+".\n\n"
+    +context+"\n\n"
+    +"Rules: ingredients marked * are NOT in pantry. Max 5 ingredients per meal. 2-3 short recipe steps.\n"
+    +"Respect fixed meals exactly. Avoid listed ingredients.\n\n"
+    +"Respond ONLY in this JSON, no markdown:\n"
+    +'{"days":[{"day":"'+days[0]+'","meals":'+jsonFormat+'}]}\n'
+    +"Include all days: "+days.join(", ");
 
   try{
-    const res=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key="+key,{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.7,maxOutputTokens:65536}})
-    });
-    if(!res.ok){ const t=await res.text(); S.generateError="API error "+res.status+": "+t.slice(0,200); S.loading=false; render(); return; }
-    const data=await res.json();
-    const text=data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if(!text){ S.generateError="Unexpected response: "+JSON.stringify(data).slice(0,200); S.loading=false; render(); return; }
-    const clean=text.replace(/```json|```/g,"").trim();
-    S.mealPlan=JSON.parse(clean);
+    const [res1, res2] = await Promise.all([
+      callGemini(key, makePrompt(["Monday","Tuesday","Wednesday","Thursday"])),
+      callGemini(key, makePrompt(["Friday","Saturday","Sunday"])),
+    ]);
+
+    const parse=(text)=>{
+      const clean=text.replace(/```json|```/g,"").trim();
+      return JSON.parse(clean);
+    };
+
+    const part1=parse(res1);
+    const part2=parse(res2);
+
+    // Collect all shopping items and merge days
+    const allDays=[...part1.days, ...part2.days];
+    const allShopping=[...(part1.shopping_list||[]), ...(part2.shopping_list||[])];
+    const uniqueShopping=[...new Set(allShopping)];
+
+    // Ensure days are in correct order
+    const dayOrder=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+    allDays.sort((a,b)=>dayOrder.indexOf(a.day)-dayOrder.indexOf(b.day));
+
+    S.mealPlan={days:allDays, shopping_list:uniqueShopping};
+    ls("mealPlan", S.mealPlan);
     S.step=3;
   }catch(e){ S.generateError="Error: "+e.message; }
   S.loading=false; render();
@@ -320,7 +416,8 @@ function renderInventory(){
     +'</div>'
     +(S.inventory.length===0?'<div class="empty-state"><div class="icon">🫙</div><div>Add your first item, or continue and the AI will assume a well-stocked kitchen.</div></div>':chips)
     +'</div>'
-    +'<div class="nav-row"><div></div><button class="btn btn-primary btn-lg" onclick="S.step=2;render()">Next: Preferences →</button></div>'
+    +'<div class="nav-row desktop-nav"><div></div><button class="btn btn-primary btn-lg" onclick="S.step=2;render()">Next: Preferences →</button></div>'
+    +'<div class="mobile-nav"><button class="btn btn-primary" onclick="S.step=2;render()">Next: Preferences →</button></div>'
     +'</div>';
 }
 
@@ -379,10 +476,15 @@ function renderPreferences(){
     +(S.fixedMeals.length===0&&!S.showFixedForm?'<div style="font-size:13px;color:var(--muted);font-style:italic;padding:8px 0">No fixed meals yet</div>':"")
     +fixedHtml+fixedForm+'</div>'
     +noKey+err
-    +'<div class="nav-row">'
+    +'<div class="nav-row desktop-nav">'
     +'<button class="btn btn-secondary" onclick="S.step=1;render()">← Back</button>'
     +'<button class="btn btn-primary btn-lg" onclick="generatePlan()" '+(S.loading?"disabled":"")+'>'+( S.loading?dots()+" Generating…":"✨ Generate Meal Plan")+'</button>'
-    +'</div></div>';
+    +'</div>'
+    +'<div class="mobile-nav">'
+    +'<button class="btn btn-secondary" onclick="S.step=1;render()">← Back</button>'
+    +'<button class="btn btn-primary" onclick="generatePlan()" '+(S.loading?"disabled":"")+'>'+( S.loading?dots()+" Generating…":"✨ Generate Meal Plan")+'</button>'
+    +'</div>'
+    +'</div>';
 }
 
 function renderMealPlan(){
@@ -424,10 +526,14 @@ function renderMealPlan(){
   return '<div class="content">'
     +'<div class="plan-header"><div><h2 class="section-title">Your Week\'s Meal Plan</h2>'
     +'<p class="section-desc">'+meta+' · <span style="color:#9a5a10">🛒 = needs shopping</span></p></div>'
-    +'<div style="display:flex;gap:10px">'
+    +'<div class="desktop-nav" style="gap:10px">'
     +'<button class="btn btn-secondary" onclick="S.step=2;render()">← Adjust</button>'
     +'<button class="btn btn-primary" onclick="generatePlan()">↻ Regenerate</button>'
     +'</div></div>'
+    +'<div class="mobile-nav">'
+    +'<button class="btn btn-secondary" onclick="S.step=2;render()">← Adjust</button>'
+    +'<button class="btn btn-primary" onclick="generatePlan()">↻ Regenerate</button>'
+    +'</div>'
     +daysHtml+shopping+'</div>';
 }
 
