@@ -251,7 +251,8 @@ async function generatePlan(){
     +"HOUSEHOLD: "+household+"\n"
     +"Adjust for kid-friendliness. Children under 5 need softer textures and milder flavors.\n\n"
     +"For each day Mon-Sun provide Breakfast, Lunch, Dinner.\n"
-    +"For each meal: name, ingredients (mark with * if NOT in pantry), recipe (3-5 steps).\n\n"
+    +"For each meal: name, ingredients (mark with * if NOT in pantry), recipe (2-3 SHORT steps, max 10 words each).\n"
+    +"Be concise. Keep ingredient lists to 5 items max.\n\n"
     +"Respond ONLY in this JSON format, no markdown:\n"
     +'{"days":[{"day":"Monday","meals":{"breakfast":{"name":"...","ingredients":["..."],"recipe":["..."]},'
     +'"lunch":{"name":"...","ingredients":["..."],"recipe":["..."]},'
@@ -261,7 +262,7 @@ async function generatePlan(){
     const res=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key="+key,{
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.7,maxOutputTokens:8192}})
+      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.7,maxOutputTokens:65536}})
     });
     if(!res.ok){ const t=await res.text(); S.generateError="API error "+res.status+": "+t.slice(0,200); S.loading=false; render(); return; }
     const data=await res.json();
