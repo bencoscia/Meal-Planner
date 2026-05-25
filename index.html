@@ -5,186 +5,132 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pantry Planner</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500&display=swap');
-
-  :root {
-    --bg: #faf7f2; --surface: #fff; --border: #e8e0d4; --text: #2a2118;
-    --muted: #8a7d6e; --accent: #c0622a; --accent-light: #fdf0e8;
-    --accent2: #4a7c59; --accent2-light: #eef5f0;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
-
-  /* Header */
-  .header { background: var(--text); color: #faf7f2; padding: 20px 24px 16px; position: relative; }
-  .header::after { content:''; position:absolute; bottom:-1px; left:0; right:0; height:3px; background:linear-gradient(90deg,var(--accent),#e8954a,var(--accent2)); }
-  .header-row { display:flex; justify-content:space-between; align-items:center; }
-  .header h1 { font-family:'Playfair Display',serif; font-size:26px; font-weight:400; }
-  .header h1 em { font-style:italic; color:#e8954a; }
-  .header-meta { font-size:12px; color:#b8a898; margin-top:5px; }
-  .settings-btn { background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); color:#faf7f2; border-radius:8px; padding:6px 12px; font-size:12px; cursor:pointer; font-family:'DM Sans',sans-serif; }
-  .settings-btn:hover { background:rgba(255,255,255,0.2); }
-
-  /* Stepper */
-  .stepper { display:flex; align-items:center; padding:14px 24px; background:var(--surface); border-bottom:1px solid var(--border); }
-  .step-item { display:flex; align-items:center; gap:8px; flex:1; }
-  .step-circle { width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:500; flex-shrink:0; transition:all 0.3s; }
-  .step-circle.active { background:var(--accent); color:white; }
-  .step-circle.done { background:var(--accent2); color:white; }
-  .step-circle.inactive { background:var(--border); color:var(--muted); }
-  .step-label { font-size:13px; font-weight:500; color:var(--muted); }
-  .step-label.active { color:var(--accent); }
-  .step-label.done { color:var(--accent2); }
-  .step-connector { flex:1; height:1px; background:var(--border); margin:0 6px; }
-
-  /* Content */
-  .content { max-width:780px; margin:0 auto; padding:28px 20px 60px; }
-  .section-title { font-family:'Playfair Display',serif; font-size:22px; font-weight:400; margin-bottom:4px; }
-  .section-desc { font-size:14px; color:var(--muted); margin-bottom:24px; }
-
-  /* Buttons */
-  .btn { font-family:'DM Sans',sans-serif; font-size:14px; font-weight:500; padding:9px 18px; border-radius:8px; border:none; cursor:pointer; transition:all 0.2s; display:inline-flex; align-items:center; gap:6px; }
-  .btn-primary { background:var(--accent); color:white; }
-  .btn-primary:hover { background:#a8551f; }
-  .btn-primary:disabled { opacity:0.5; cursor:not-allowed; }
-  .btn-secondary { background:var(--bg); color:var(--text); border:1.5px solid var(--border); }
-  .btn-secondary:hover { border-color:var(--accent); color:var(--accent); }
-  .btn-lg { padding:13px 28px; font-size:15px; border-radius:10px; }
-
-  /* Card */
-  .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:20px; margin-bottom:16px; }
-
-  /* Add row */
-  .add-row { display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap; }
-  .add-row input, .add-row select, .field-input { font-family:'DM Sans',sans-serif; font-size:14px; padding:9px 12px; border:1.5px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); outline:none; transition:border-color 0.2s; }
-  .add-row input:focus, .add-row select:focus, .field-input:focus { border-color:var(--accent); }
-  .add-row input.name { flex:2; min-width:120px; }
-  .add-row input.qty { flex:1; min-width:80px; }
-  .add-row select { flex:1.5; min-width:110px; }
-
-  /* Inventory */
-  .toolbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px; }
-  .inv-count { font-size:12px; background:var(--accent-light); color:var(--accent); padding:2px 10px; border-radius:10px; font-weight:500; }
-  .cat-group { margin-bottom:14px; }
-  .cat-label { font-size:11px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--muted); margin-bottom:7px; }
-  .inv-grid { display:flex; flex-wrap:wrap; gap:7px; }
-  .inv-chip { display:flex; align-items:center; gap:6px; background:var(--bg); border:1px solid var(--border); border-radius:20px; padding:4px 10px 4px 13px; font-size:13px; }
-  .inv-chip .qty { color:var(--muted); font-size:12px; }
-  .inv-chip button { background:none; border:none; cursor:pointer; color:var(--muted); font-size:16px; line-height:1; padding:0; }
-  .inv-chip button:hover { color:#c0392b; }
-  .empty-state { text-align:center; padding:28px; color:var(--muted); font-size:14px; }
-  .empty-state .icon { font-size:32px; margin-bottom:8px; }
-
-  /* Dietary toggles */
-  .diet-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(155px,1fr)); gap:10px; margin-bottom:24px; }
-  .diet-toggle { display:flex; align-items:center; gap:10px; padding:11px 14px; border-radius:10px; border:1.5px solid var(--border); background:var(--surface); cursor:pointer; font-size:14px; transition:all 0.2s; user-select:none; }
-  .diet-toggle.active { border-color:var(--accent2); background:var(--accent2-light); color:var(--accent2); font-weight:500; }
-  .diet-toggle .emoji { font-size:17px; }
-  .diet-check { margin-left:auto; }
-
-  /* Household */
-  .member-row { display:flex; gap:8px; margin-bottom:8px; align-items:center; flex-wrap:wrap; }
-  .member-row input, .member-row select { font-family:'DM Sans',sans-serif; font-size:14px; padding:8px 12px; border:1.5px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); outline:none; }
-  .member-row input:focus, .member-row select:focus { border-color:var(--accent); }
-  .member-name { flex:2; min-width:100px; }
-  .member-type { flex:1; min-width:90px; }
-  .member-age { width:64px; text-align:center; }
-  .rm-btn { background:none; border:none; cursor:pointer; color:var(--muted); font-size:22px; line-height:1; padding:0 4px; }
-  .rm-btn:hover { color:#c0392b; }
-
-  /* Fixed meals */
-  .fixed-item { display:flex; align-items:center; justify-content:space-between; padding:9px 14px; background:var(--bg); border:1px solid var(--border); border-radius:8px; margin-bottom:6px; }
-  .fixed-day { font-size:11px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--accent); margin-right:8px; }
-  .fixed-form { background:var(--bg); border:1.5px solid var(--border); border-radius:10px; padding:14px; margin-top:8px; }
-  .fixed-form-row { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
-  .fixed-form select, .fixed-form input { font-family:'DM Sans',sans-serif; font-size:14px; padding:8px 12px; border:1.5px solid var(--border); border-radius:8px; background:var(--surface); color:var(--text); outline:none; }
-  .fixed-form select { flex:1; min-width:100px; }
-  .fixed-form input { width:100%; margin-bottom:8px; }
-
-  /* Nav row */
-  .nav-row { display:flex; justify-content:space-between; align-items:center; margin-top:28px; padding-top:20px; border-top:1px solid var(--border); }
-
-  /* Error banner */
-  .error-banner { font-size:13px; padding:10px 14px; border-radius:8px; margin-bottom:16px; background:#fff0f0; color:#c0392b; border:1px solid #f0b0b0; word-break:break-word; }
-  .warn-banner { font-size:13px; padding:10px 14px; border-radius:8px; margin-bottom:16px; background:#fff8ec; color:#7a5a10; border:1px solid #f0d090; }
-
-  /* Loading */
-  .loading-wrap { text-align:center; padding:60px 24px; }
-  .loading-wrap .ltitle { font-family:'Playfair Display',serif; font-size:22px; margin-bottom:10px; }
-  .loading-wrap p { font-size:14px; color:var(--muted); margin-bottom:20px; }
-  .dots { display:inline-flex; gap:5px; align-items:center; }
-  .dot { width:8px; height:8px; border-radius:50%; background:var(--accent); animation:pulse 1.2s ease-in-out infinite; }
-  .dot:nth-child(2) { animation-delay:0.2s; }
-  .dot:nth-child(3) { animation-delay:0.4s; }
-  @keyframes pulse { 0%,100%{opacity:0.3;transform:scale(0.8)} 50%{opacity:1;transform:scale(1.2)} }
-
-  /* Meal plan */
-  .plan-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; flex-wrap:wrap; gap:12px; }
-  .day-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; margin-bottom:10px; overflow:hidden; }
-  .day-header { display:flex; justify-content:space-between; align-items:center; padding:14px 18px; cursor:pointer; user-select:none; }
-  .day-name { font-family:'Playfair Display',serif; font-size:17px; }
-  .day-preview { display:flex; gap:7px; flex-wrap:wrap; }
-  .meal-badge { font-size:12px; color:var(--muted); background:var(--bg); padding:2px 9px; border-radius:10px; border:1px solid var(--border); }
-  .chevron { color:var(--muted); font-size:11px; transition:transform 0.2s; margin-left:8px; }
-  .chevron.open { transform:rotate(180deg); }
-  .day-meals { border-top:1px solid var(--border); display:none; }
-  .day-meals.open { display:block; }
-  .meal-row { padding:14px 18px; border-bottom:1px solid var(--border); }
-  .meal-row:last-child { border-bottom:none; }
-  .meal-type { font-size:10px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--accent); margin-bottom:3px; }
-  .meal-name { font-size:15px; font-weight:500; margin-bottom:9px; }
-  .ingredients { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:10px; }
-  .ing-tag { font-size:12px; padding:2px 9px; border-radius:10px; border:1px solid var(--border); background:var(--bg); }
-  .ing-tag.need { border-color:#f0c090; background:#fff8f0; color:#9a5a10; }
-  .recipe-block { padding:10px 12px; background:var(--bg); border-radius:8px; border-left:3px solid var(--accent); }
-  .recipe-title { font-size:11px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--muted); margin-bottom:7px; }
-  .recipe-step { display:flex; gap:8px; font-size:13px; line-height:1.5; margin-bottom:5px; }
-  .recipe-step:last-child { margin-bottom:0; }
-  .step-num { flex-shrink:0; width:18px; height:18px; border-radius:50%; background:var(--accent); color:white; font-size:10px; display:flex; align-items:center; justify-content:center; margin-top:2px; }
-
-  /* Shopping list */
-  .shopping-card { background:var(--accent2-light); border:1.5px solid #b5d4be; border-radius:12px; padding:18px 22px; margin-top:20px; }
-  .shopping-title { font-family:'Playfair Display',serif; font-size:17px; color:var(--accent2); margin-bottom:12px; }
-  .shopping-grid { display:flex; flex-wrap:wrap; gap:7px; }
-  .shop-item { font-size:13px; background:white; border:1px solid #b5d4be; border-radius:14px; padding:4px 12px; color:#2a5a38; }
-
-  /* Settings overlay */
-  .overlay { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:100; display:flex; align-items:center; justify-content:center; padding:20px; }
-  .settings-panel { background:var(--surface); border-radius:16px; width:100%; max-width:480px; padding:28px; box-shadow:0 20px 60px rgba(0,0,0,0.2); }
-  .settings-title { font-family:'Playfair Display',serif; font-size:22px; margin-bottom:6px; }
-  .settings-desc { font-size:13px; color:var(--muted); margin-bottom:24px; line-height:1.5; }
-  .field { margin-bottom:16px; }
-  .field label { display:block; font-size:12px; font-weight:600; letter-spacing:0.5px; text-transform:uppercase; color:var(--muted); margin-bottom:6px; }
-  .field input { width:100%; font-family:'DM Sans',sans-serif; font-size:14px; padding:10px 14px; border:1.5px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); outline:none; }
-  .field input:focus { border-color:var(--accent); }
-  .settings-actions { display:flex; gap:10px; margin-top:24px; justify-content:flex-end; }
-
-  /* Section header util */
-  .section-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; }
-  .sub-label { font-size:14px; font-weight:500; margin-bottom:4px; }
-  .sub-desc { font-size:13px; color:var(--muted); }
-  .pref-section { margin-bottom:24px; }
-
-  /* Sync dot */
-  .sync-row { display:flex; align-items:center; gap:6px; }
-  .sdot { width:6px; height:6px; border-radius:50%; background:#b8a898; flex-shrink:0; }
-  .sdot.live { background:#6bcf8a; }
-  .sdot.err { background:#f08080; }
-  .sdot.syncing { background:#e8954a; animation:pulse 1s ease-in-out infinite; }
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500&display=swap');
+:root{--bg:#faf7f2;--surface:#fff;--border:#e8e0d4;--text:#2a2118;--muted:#8a7d6e;--accent:#c0622a;--accent-light:#fdf0e8;--accent2:#4a7c59;--accent2-light:#eef5f0;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+.header{background:var(--text);color:#faf7f2;padding:20px 24px 16px;position:relative;}
+.header::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--accent),#e8954a,var(--accent2));}
+.header-row{display:flex;justify-content:space-between;align-items:center;}
+.header h1{font-family:'Playfair Display',serif;font-size:26px;font-weight:400;}
+.header h1 em{font-style:italic;color:#e8954a;}
+.header-meta{font-size:12px;margin-top:5px;}
+.settings-btn{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:#faf7f2;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.settings-btn:hover{background:rgba(255,255,255,0.2);}
+.stepper{display:flex;align-items:center;padding:14px 24px;background:var(--surface);border-bottom:1px solid var(--border);}
+.step-item{display:flex;align-items:center;gap:8px;flex:1;}
+.step-circle{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex-shrink:0;}
+.step-circle.active{background:var(--accent);color:white;}
+.step-circle.done{background:var(--accent2);color:white;}
+.step-circle.inactive{background:var(--border);color:var(--muted);}
+.step-label{font-size:13px;font-weight:500;color:var(--muted);}
+.step-label.active{color:var(--accent);}
+.step-label.done{color:var(--accent2);}
+.step-connector{flex:1;height:1px;background:var(--border);margin:0 6px;}
+.content{max-width:780px;margin:0 auto;padding:28px 20px 60px;}
+.section-title{font-family:'Playfair Display',serif;font-size:22px;font-weight:400;margin-bottom:4px;}
+.section-desc{font-size:14px;color:var(--muted);margin-bottom:24px;}
+.btn{font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;padding:9px 18px;border-radius:8px;border:none;cursor:pointer;transition:all 0.2s;display:inline-flex;align-items:center;gap:6px;}
+.btn-primary{background:var(--accent);color:white;}
+.btn-primary:hover{background:#a8551f;}
+.btn-primary:disabled{opacity:0.5;cursor:not-allowed;}
+.btn-secondary{background:var(--bg);color:var(--text);border:1.5px solid var(--border);}
+.btn-secondary:hover{border-color:var(--accent);color:var(--accent);}
+.btn-lg{padding:13px 28px;font-size:15px;border-radius:10px;}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;}
+.add-row{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;}
+.fi{font-family:'DM Sans',sans-serif;font-size:14px;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none;}
+.fi:focus{border-color:var(--accent);}
+.fi.name{flex:2;min-width:120px;}
+.fi.qty{flex:1;min-width:80px;}
+.fi.cat{flex:1.5;min-width:110px;}
+.toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px;}
+.inv-count{font-size:12px;background:var(--accent-light);color:var(--accent);padding:2px 10px;border-radius:10px;font-weight:500;}
+.cat-group{margin-bottom:14px;}
+.cat-label{font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:7px;}
+.inv-grid{display:flex;flex-wrap:wrap;gap:7px;}
+.inv-chip{display:flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 10px 4px 13px;font-size:13px;}
+.inv-chip .qty{color:var(--muted);font-size:12px;}
+.inv-chip button{background:none;border:none;cursor:pointer;color:var(--muted);font-size:16px;line-height:1;padding:0;}
+.inv-chip button:hover{color:#c0392b;}
+.empty-state{text-align:center;padding:28px;color:var(--muted);font-size:14px;}
+.empty-state .icon{font-size:32px;margin-bottom:8px;}
+.diet-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:10px;margin-bottom:24px;}
+.diet-toggle{display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface);cursor:pointer;font-size:14px;user-select:none;}
+.diet-toggle.active{border-color:var(--accent2);background:var(--accent2-light);color:var(--accent2);font-weight:500;}
+.member-row{display:flex;gap:8px;margin-bottom:8px;align-items:center;flex-wrap:wrap;}
+.member-row input,.member-row select{font-family:'DM Sans',sans-serif;font-size:14px;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none;}
+.member-row input:focus,.member-row select:focus{border-color:var(--accent);}
+.mname{flex:2;min-width:100px;}
+.mtype{flex:1;min-width:90px;}
+.mage{width:64px;text-align:center;}
+.rm-btn{background:none;border:none;cursor:pointer;color:var(--muted);font-size:22px;line-height:1;padding:0 4px;}
+.rm-btn:hover{color:#c0392b;}
+.fixed-item{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;}
+.fixed-day{font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--accent);margin-right:8px;}
+.fixed-form{background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:14px;margin-top:8px;}
+.fixed-form-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;}
+.fixed-form select,.fixed-form input{font-family:'DM Sans',sans-serif;font-size:14px;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);outline:none;}
+.fixed-form select{flex:1;min-width:100px;}
+.fixed-form input.fdesc{width:100%;margin-bottom:8px;}
+.nav-row{display:flex;justify-content:space-between;align-items:center;margin-top:28px;padding-top:20px;border-top:1px solid var(--border);}
+.error-banner{font-size:13px;padding:10px 14px;border-radius:8px;margin-bottom:16px;background:#fff0f0;color:#c0392b;border:1px solid #f0b0b0;word-break:break-word;}
+.warn-banner{font-size:13px;padding:10px 14px;border-radius:8px;margin-bottom:16px;background:#fff8ec;color:#7a5a10;border:1px solid #f0d090;}
+.loading-wrap{text-align:center;padding:60px 24px;}
+.loading-wrap .ltitle{font-family:'Playfair Display',serif;font-size:22px;margin-bottom:10px;}
+.loading-wrap p{font-size:14px;color:var(--muted);margin-bottom:20px;}
+.dots{display:inline-flex;gap:5px;align-items:center;}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 1.2s ease-in-out infinite;}
+.dot:nth-child(2){animation-delay:0.2s;}
+.dot:nth-child(3){animation-delay:0.4s;}
+@keyframes pulse{0%,100%{opacity:0.3;transform:scale(0.8)}50%{opacity:1;transform:scale(1.2)}}
+.plan-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:12px;}
+.day-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:10px;overflow:hidden;}
+.day-header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;cursor:pointer;user-select:none;}
+.day-name{font-family:'Playfair Display',serif;font-size:17px;}
+.day-preview{display:flex;gap:7px;flex-wrap:wrap;}
+.meal-badge{font-size:12px;color:var(--muted);background:var(--bg);padding:2px 9px;border-radius:10px;border:1px solid var(--border);}
+.chevron{color:var(--muted);font-size:11px;transition:transform 0.2s;margin-left:8px;}
+.chevron.open{transform:rotate(180deg);}
+.day-meals{border-top:1px solid var(--border);display:none;}
+.day-meals.open{display:block;}
+.meal-row{padding:14px 18px;border-bottom:1px solid var(--border);}
+.meal-row:last-child{border-bottom:none;}
+.meal-type{font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--accent);margin-bottom:3px;}
+.meal-name{font-size:15px;font-weight:500;margin-bottom:9px;}
+.ingredients{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px;}
+.ing-tag{font-size:12px;padding:2px 9px;border-radius:10px;border:1px solid var(--border);background:var(--bg);}
+.ing-tag.need{border-color:#f0c090;background:#fff8f0;color:#9a5a10;}
+.recipe-block{padding:10px 12px;background:var(--bg);border-radius:8px;border-left:3px solid var(--accent);}
+.recipe-title{font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:7px;}
+.recipe-step{display:flex;gap:8px;font-size:13px;line-height:1.5;margin-bottom:5px;}
+.recipe-step:last-child{margin-bottom:0;}
+.step-num{flex-shrink:0;width:18px;height:18px;border-radius:50%;background:var(--accent);color:white;font-size:10px;display:flex;align-items:center;justify-content:center;margin-top:2px;}
+.shopping-card{background:var(--accent2-light);border:1.5px solid #b5d4be;border-radius:12px;padding:18px 22px;margin-top:20px;}
+.shopping-title{font-family:'Playfair Display',serif;font-size:17px;color:var(--accent2);margin-bottom:12px;}
+.shopping-grid{display:flex;flex-wrap:wrap;gap:7px;}
+.shop-item{font-size:13px;background:white;border:1px solid #b5d4be;border-radius:14px;padding:4px 12px;color:#2a5a38;}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;}
+.settings-panel{background:var(--surface);border-radius:16px;width:100%;max-width:460px;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,0.2);}
+.settings-title{font-family:'Playfair Display',serif;font-size:22px;margin-bottom:6px;}
+.settings-desc{font-size:13px;color:var(--muted);margin-bottom:24px;line-height:1.6;}
+.field{margin-bottom:16px;}
+.field label{display:block;font-size:12px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;}
+.field input{width:100%;font-family:'DM Sans',sans-serif;font-size:14px;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none;}
+.field input:focus{border-color:var(--accent);}
+.settings-actions{display:flex;gap:10px;margin-top:24px;justify-content:flex-end;}
+.pref-section{margin-bottom:24px;}
+.sub-label{font-size:14px;font-weight:500;margin-bottom:8px;}
+.sub-desc{font-size:13px;color:var(--muted);}
+.section-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;}
 </style>
 </head>
 <body>
-
 <div id="app"></div>
-
 <script>
-// ─── CONFIG ───────────────────────────────────────────────────────────────────
-const getGeminiKey = () => localStorage.getItem("geminiKey") || "";
-
-// ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const CATEGORIES = ["Produce","Protein","Dairy","Grains","Pantry","Frozen","Other"];
-const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
-const DIETARY_OPTIONS = [
+const CATEGORIES=["Produce","Protein","Dairy","Grains","Pantry","Frozen","Other"];
+const DAYS=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+const DIET_OPTIONS=[
   {id:"vegetarian",label:"Vegetarian",emoji:"🌿"},
   {id:"vegan",label:"Vegan",emoji:"🌱"},
   {id:"gluten_free",label:"Gluten-Free",emoji:"🌾"},
@@ -192,530 +138,332 @@ const DIETARY_OPTIONS = [
   {id:"low_carb",label:"Low-Carb",emoji:"📉"},
   {id:"nut_free",label:"Nut-Free",emoji:"🥜"},
 ];
-const SEED_INVENTORY = [
-  {id:1,name:"Chicken breasts",qty:"",category:"Protein"},
-  {id:2,name:"Chicken thighs",qty:"",category:"Protein"},
-  {id:3,name:"Pork chops",qty:"",category:"Protein"},
-  {id:4,name:"Salmon fillets",qty:"",category:"Protein"},
-  {id:5,name:"Canned tuna",qty:"",category:"Protein"},
-  {id:6,name:"Shrimp",qty:"",category:"Protein"},
-  {id:7,name:"Eggs",qty:"",category:"Protein"},
-  {id:8,name:"Firm tofu",qty:"",category:"Protein"},
-  {id:9,name:"Canned chickpeas",qty:"",category:"Protein"},
-  {id:10,name:"Canned black beans",qty:"",category:"Protein"},
-  {id:11,name:"Lentils",qty:"",category:"Protein"},
-  {id:12,name:"Onions",qty:"",category:"Produce"},
-  {id:13,name:"Carrots",qty:"",category:"Produce"},
-  {id:14,name:"Cherry tomatoes",qty:"",category:"Produce"},
-  {id:15,name:"Potatoes",qty:"",category:"Produce"},
-  {id:16,name:"Sweet potatoes",qty:"",category:"Produce"},
-  {id:17,name:"Minced garlic",qty:"",category:"Produce"},
-  {id:18,name:"Butter",qty:"",category:"Dairy"},
-  {id:19,name:"Milk",qty:"",category:"Dairy"},
-  {id:20,name:"Parmesan",qty:"",category:"Dairy"},
-  {id:21,name:"Cheddar",qty:"",category:"Dairy"},
-  {id:22,name:"Greek yogurt",qty:"",category:"Dairy"},
-  {id:23,name:"Brown rice",qty:"",category:"Grains"},
-  {id:24,name:"Pasta",qty:"",category:"Grains"},
-  {id:25,name:"Bread",qty:"",category:"Grains"},
-  {id:26,name:"Oats",qty:"",category:"Grains"},
-  {id:27,name:"Panko breadcrumbs",qty:"",category:"Grains"},
-  {id:28,name:"Olive oil",qty:"",category:"Pantry"},
-  {id:29,name:"Soy sauce",qty:"",category:"Pantry"},
-  {id:30,name:"Diced tomatoes (canned)",qty:"",category:"Pantry"},
-  {id:31,name:"Chicken stock",qty:"",category:"Pantry"},
-  {id:32,name:"Dijon mustard",qty:"",category:"Pantry"},
-  {id:33,name:"Honey",qty:"",category:"Pantry"},
-  {id:34,name:"Hot sauce",qty:"",category:"Pantry"},
-  {id:35,name:"Sesame oil",qty:"",category:"Pantry"},
-  {id:36,name:"Rice vinegar",qty:"",category:"Pantry"},
-  {id:37,name:"Cumin",qty:"",category:"Pantry"},
-  {id:38,name:"Paprika",qty:"",category:"Pantry"},
-  {id:39,name:"Italian seasoning",qty:"",category:"Pantry"},
-  {id:40,name:"Chili flakes",qty:"",category:"Pantry"},
+const SEED=[
+  {id:1,name:"Chicken breasts",qty:"",category:"Protein"},{id:2,name:"Chicken thighs",qty:"",category:"Protein"},
+  {id:3,name:"Pork chops",qty:"",category:"Protein"},{id:4,name:"Salmon fillets",qty:"",category:"Protein"},
+  {id:5,name:"Canned tuna",qty:"",category:"Protein"},{id:6,name:"Shrimp",qty:"",category:"Protein"},
+  {id:7,name:"Eggs",qty:"",category:"Protein"},{id:8,name:"Firm tofu",qty:"",category:"Protein"},
+  {id:9,name:"Canned chickpeas",qty:"",category:"Protein"},{id:10,name:"Canned black beans",qty:"",category:"Protein"},
+  {id:11,name:"Lentils",qty:"",category:"Protein"},{id:12,name:"Onions",qty:"",category:"Produce"},
+  {id:13,name:"Carrots",qty:"",category:"Produce"},{id:14,name:"Cherry tomatoes",qty:"",category:"Produce"},
+  {id:15,name:"Potatoes",qty:"",category:"Produce"},{id:16,name:"Sweet potatoes",qty:"",category:"Produce"},
+  {id:17,name:"Minced garlic",qty:"",category:"Produce"},{id:18,name:"Butter",qty:"",category:"Dairy"},
+  {id:19,name:"Milk",qty:"",category:"Dairy"},{id:20,name:"Parmesan",qty:"",category:"Dairy"},
+  {id:21,name:"Cheddar",qty:"",category:"Dairy"},{id:22,name:"Greek yogurt",qty:"",category:"Dairy"},
+  {id:23,name:"Brown rice",qty:"",category:"Grains"},{id:24,name:"Pasta",qty:"",category:"Grains"},
+  {id:25,name:"Bread",qty:"",category:"Grains"},{id:26,name:"Oats",qty:"",category:"Grains"},
+  {id:27,name:"Panko breadcrumbs",qty:"",category:"Grains"},{id:28,name:"Olive oil",qty:"",category:"Pantry"},
+  {id:29,name:"Soy sauce",qty:"",category:"Pantry"},{id:30,name:"Diced tomatoes (canned)",qty:"",category:"Pantry"},
+  {id:31,name:"Chicken stock",qty:"",category:"Pantry"},{id:32,name:"Dijon mustard",qty:"",category:"Pantry"},
+  {id:33,name:"Honey",qty:"",category:"Pantry"},{id:34,name:"Hot sauce",qty:"",category:"Pantry"},
+  {id:35,name:"Sesame oil",qty:"",category:"Pantry"},{id:36,name:"Rice vinegar",qty:"",category:"Pantry"},
+  {id:37,name:"Cumin",qty:"",category:"Pantry"},{id:38,name:"Paprika",qty:"",category:"Pantry"},
+  {id:39,name:"Italian seasoning",qty:"",category:"Pantry"},{id:40,name:"Chili flakes",qty:"",category:"Pantry"},
   {id:41,name:"Cornstarch",qty:"",category:"Pantry"},
 ];
 
-// ─── STATE ────────────────────────────────────────────────────────────────────
-const state = {
-  step: 1,
-  showSettings: false,
-  inventory: [],
-  newItem: {name:"",qty:"",category:"Produce"},
-  dietPrefs: [],
-  household: [
+// State
+const S={
+  step:1, showSettings:false,
+  inventory:[], newItem:{name:"",qty:"",category:"Produce"},
+  dietPrefs:[],
+  household:[
     {id:1,name:"Adult 1",type:"adult",age:""},
     {id:2,name:"Adult 2",type:"adult",age:""},
     {id:3,name:"Child 1",type:"child",age:"3"},
     {id:4,name:"Child 2",type:"child",age:"1"},
   ],
-  avoid: "banana, avocado",
-  fixedMeals: [{id:1,day:"Tuesday",mealType:"dinner",description:"Salmon with white rice and veggies"}],
-  showFixedForm: false,
-  newFixed: {day:"Monday",mealType:"dinner",description:""},
-  mealPlan: null,
-  loading: false,
-  generateError: "",
-  expandedDay: null,
-  binId: "",
-  apiKey: "",
-  settingsDraft: {binId:"",apiKey:"",geminiKey:""},
-  syncing: false,
-  lastSynced: null,
-  syncError: "",
+  avoid:"banana, avocado",
+  fixedMeals:[{id:1,day:"Tuesday",mealType:"dinner",description:"Salmon with white rice and veggies"}],
+  showFixedForm:false, newFixed:{day:"Monday",mealType:"dinner",description:""},
+  mealPlan:null, loading:false, generateError:"", expandedDay:null,
+  settingsDraft:{geminiKey:""},
 };
 
-// ─── PERSISTENCE ──────────────────────────────────────────────────────────────
-function save(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) {} }
-function load(key, fallback) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch(e) { return fallback; } }
+// Storage
+function ls(k,v){if(v===undefined){try{const x=localStorage.getItem(k);return x?JSON.parse(x):null;}catch(e){return null;}}try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 
-function loadAll() {
-  state.inventory   = load("inventory", SEED_INVENTORY);
-  state.dietPrefs   = load("dietPrefs", []);
-  state.household   = load("household", state.household);
-  state.avoid       = load("avoid", "banana, avocado");
-  state.fixedMeals  = load("fixedMeals", state.fixedMeals);
-  state.binId       = load("binId", "");
-  state.apiKey      = load("apiKey", "");
-  state.settingsDraft = {binId: state.binId, apiKey: state.apiKey, geminiKey: localStorage.getItem('geminiKey')||''};
+function loadAll(){
+  S.inventory   = ls("inventory") || SEED;
+  S.dietPrefs   = ls("dietPrefs") || [];
+  S.household   = ls("household") || S.household;
+  S.avoid       = ls("avoid") ?? "banana, avocado";
+  S.fixedMeals  = ls("fixedMeals") || S.fixedMeals;
+  S.settingsDraft = {geminiKey: ls("geminiKey") || ""};
 }
 
-// ─── JSONBIN SYNC ─────────────────────────────────────────────────────────────
-let syncTimer = null;
-async function fetchBin() {
-  if (!state.binId || !state.apiKey) return;
-  state.syncing = true; state.syncError = ""; render();
-  try {
-    const res = await fetch("https://api.jsonbin.io/v3/b/" + state.binId + "/latest", {
-      headers: {"X-Master-Key": state.apiKey}
-    });
-    if (!res.ok) throw new Error("Error " + res.status);
-    const data = await res.json();
-    if (Array.isArray(data.record?.inventory)) {
-      state.inventory = data.record.inventory;
-      save("inventory", state.inventory);
-    }
-    state.lastSynced = new Date().toISOString();
-  } catch(e) { state.syncError = "Sync failed: " + e.message; }
-  state.syncing = false; render();
-}
+function geminiKey(){ return ls("geminiKey") || ""; }
 
-function pushBin(items) {
-  if (!state.binId || !state.apiKey) return;
-  clearTimeout(syncTimer);
-  syncTimer = setTimeout(async () => {
-    state.syncing = true; render();
-    try {
-      const res = await fetch("https://api.jsonbin.io/v3/b/" + state.binId, {
-        method: "PUT",
-        headers: {"Content-Type":"application/json","X-Master-Key": state.apiKey},
-        body: JSON.stringify({inventory: items})
-      });
-      if (!res.ok) throw new Error("Error " + res.status);
-      state.lastSynced = new Date().toISOString();
-    } catch(e) { state.syncError = "Sync failed: " + e.message; }
-    state.syncing = false; render();
-  }, 800);
+// Actions
+function setInv(items){ S.inventory=items; ls("inventory",items); render(); }
+function addItem(){
+  const name=S.newItem.name.trim(); if(!name)return;
+  setInv([...S.inventory,{id:Date.now(),name,qty:S.newItem.qty,category:S.newItem.category}]);
+  S.newItem={name:"",qty:"",category:S.newItem.category};
 }
+function removeItem(id){ setInv(S.inventory.filter(i=>i.id!==id)); }
+function togglePref(id){
+  S.dietPrefs=S.dietPrefs.includes(id)?S.dietPrefs.filter(p=>p!==id):[...S.dietPrefs,id];
+  ls("dietPrefs",S.dietPrefs); render();
+}
+function updateMember(id,field,value){
+  S.household=S.household.map(m=>m.id===id?{...m,[field]:value}:m);
+  ls("household",S.household); render();
+}
+function addMember(){ S.household=[...S.household,{id:Date.now(),name:"",type:"adult",age:""}]; ls("household",S.household); render(); }
+function removeMember(id){ S.household=S.household.filter(m=>m.id!==id); ls("household",S.household); render(); }
+function addFixedMeal(){
+  const desc=S.newFixed.description.trim(); if(!desc)return;
+  S.fixedMeals=[...S.fixedMeals,{id:Date.now(),...S.newFixed,description:desc}];
+  ls("fixedMeals",S.fixedMeals);
+  S.newFixed={day:"Monday",mealType:"dinner",description:""};
+  S.showFixedForm=false; render();
+}
+function removeFixedMeal(id){ S.fixedMeals=S.fixedMeals.filter(m=>m.id!==id); ls("fixedMeals",S.fixedMeals); render(); }
+function saveSettings(){
+  if(S.settingsDraft.geminiKey) ls("geminiKey",S.settingsDraft.geminiKey);
+  S.showSettings=false; render();
+}
+function toggleDay(day){ S.expandedDay=S.expandedDay===day?null:day; render(); }
 
-function fmtSync(iso) {
-  if (!iso) return "";
-  const d = new Date(iso), now = new Date(), diff = Math.floor((now-d)/60000);
-  if (diff < 1) return "just now";
-  if (diff < 60) return diff + "m ago";
-  const h = Math.floor(diff/60);
-  return h < 24 ? h + "h ago" : d.toLocaleDateString();
-}
+async function generatePlan(){
+  const key=geminiKey();
+  if(!key){ S.generateError="No Gemini API key — tap ⚙ Settings to add one."; render(); return; }
+  S.loading=true; S.generateError=""; S.mealPlan=null; render();
 
-// ─── ACTIONS ──────────────────────────────────────────────────────────────────
-function setInventory(items) {
-  state.inventory = items;
-  save("inventory", items);
-  pushBin(items);
-}
-function addItem() {
-  const name = state.newItem.name.trim();
-  if (!name) return;
-  setInventory([...state.inventory, {id:Date.now(), name, qty:state.newItem.qty, category:state.newItem.category}]);
-  state.newItem = {name:"", qty:"", category: state.newItem.category};
-  render();
-}
-function removeItem(id) { setInventory(state.inventory.filter(i => i.id !== id)); render(); }
-
-function togglePref(id) {
-  state.dietPrefs = state.dietPrefs.includes(id) ? state.dietPrefs.filter(p=>p!==id) : [...state.dietPrefs, id];
-  save("dietPrefs", state.dietPrefs); render();
-}
-
-function updateMember(id, field, value) {
-  state.household = state.household.map(m => m.id===id ? {...m,[field]:value} : m);
-  save("household", state.household); render();
-}
-function addMember() {
-  state.household = [...state.household, {id:Date.now(),name:"",type:"adult",age:""}];
-  save("household", state.household); render();
-}
-function removeMember(id) {
-  state.household = state.household.filter(m=>m.id!==id);
-  save("household", state.household); render();
-}
-
-function addFixedMeal() {
-  const desc = state.newFixed.description.trim();
-  if (!desc) return;
-  state.fixedMeals = [...state.fixedMeals, {id:Date.now(), ...state.newFixed, description:desc}];
-  save("fixedMeals", state.fixedMeals);
-  state.newFixed = {day:"Monday",mealType:"dinner",description:""};
-  state.showFixedForm = false;
-  render();
-}
-function removeFixedMeal(id) {
-  state.fixedMeals = state.fixedMeals.filter(m=>m.id!==id);
-  save("fixedMeals", state.fixedMeals); render();
-}
-
-function saveSettings() {
-  state.binId = state.settingsDraft.binId;
-  state.apiKey = state.settingsDraft.apiKey;
-  save("binId", state.binId); save("apiKey", state.apiKey);
-  if (state.settingsDraft.geminiKey) localStorage.setItem("geminiKey", state.settingsDraft.geminiKey);
-  state.showSettings = false;
-  if (state.binId && state.apiKey) fetchBin();
-  render();
-}
-
-// ─── GENERATE PLAN ────────────────────────────────────────────────────────────
-async function generatePlan() {
-  state.loading = true; state.generateError = ""; state.mealPlan = null; render();
-
-  const inventoryText = state.inventory.length
-    ? state.inventory.map(i => i.name + (i.qty?" ("+i.qty+")":"") + " ["+i.category+"]").join(", ")
+  const inv=S.inventory.length
+    ? S.inventory.map(i=>i.name+(i.qty?" ("+i.qty+")":"")+" ["+i.category+"]").join(", ")
     : "No specific items — assume a well-stocked kitchen";
-
-  const dietText = state.dietPrefs.length
-    ? state.dietPrefs.map(p => DIETARY_OPTIONS.find(o=>o.id===p)?.label).join(", ")
+  const diet=S.dietPrefs.length
+    ? S.dietPrefs.map(p=>DIET_OPTIONS.find(o=>o.id===p)?.label).join(", ")
     : "No restrictions";
-
-  const householdText = state.household.map(m =>
-    m.name + " (" + m.type + (m.age ? ", age "+m.age : "") + ")"
-  ).join(", ");
-
-  const fixedText = state.fixedMeals.length
-    ? state.fixedMeals.map(m => "- "+m.day+" "+m.mealType+": "+m.description).join("\n")
+  const household=S.household.map(m=>m.name+" ("+m.type+(m.age?", age "+m.age:"")+")").join(", ");
+  const fixed=S.fixedMeals.length
+    ? S.fixedMeals.map(m=>"- "+m.day+" "+m.mealType+": "+m.description).join("\n")
     : "None";
+  const avoid=S.avoid.trim()||"none";
 
-  const avoidText = state.avoid.trim() || "none";
+  const prompt="You are a helpful meal planner. Generate a 7-day meal plan.\n\n"
+    +"PANTRY INVENTORY: "+inv+"\n\n"
+    +"DIETARY PREFERENCES: "+diet+"\n\n"
+    +"INGREDIENTS TO AVOID: "+avoid+"\n\n"
+    +"FIXED MEALS (include these exactly, do not change them):\n"+fixed+"\n\n"
+    +"HOUSEHOLD: "+household+"\n"
+    +"Adjust for kid-friendliness. Children under 5 need softer textures and milder flavors.\n\n"
+    +"For each day Mon-Sun provide Breakfast, Lunch, Dinner.\n"
+    +"For each meal: name, ingredients (mark with * if NOT in pantry), recipe (3-5 steps).\n\n"
+    +"Respond ONLY in this JSON format, no markdown:\n"
+    +'{"days":[{"day":"Monday","meals":{"breakfast":{"name":"...","ingredients":["..."],"recipe":["..."]},'
+    +'"lunch":{"name":"...","ingredients":["..."],"recipe":["..."]},'
+    +'"dinner":{"name":"...","ingredients":["..."],"recipe":["..."]}}}],"shopping_list":["..."]}';
 
-  const prompt = "You are a helpful meal planner. Generate a 7-day meal plan based on the following:\n\n"
-    + "PANTRY INVENTORY: " + inventoryText + "\n\n"
-    + "DIETARY PREFERENCES: " + dietText + "\n\n"
-    + "INGREDIENTS TO AVOID: " + avoidText + "\n\n"
-    + "FIXED MEALS (always include these exactly, do not change them):\n" + fixedText + "\n\n"
-    + "HOUSEHOLD MEMBERS: " + householdText + "\n"
-    + "Adjust meal complexity, portion sizes, and kid-friendliness accordingly. Children under 5 need softer textures, milder flavors, and smaller portions.\n\n"
-    + "For each day (Monday-Sunday), provide Breakfast, Lunch, and Dinner.\n"
-    + "For each meal include: 1) meal name, 2) key ingredients (mark with * if NOT in pantry), 3) rough recipe (3-5 short steps).\n\n"
-    + "Respond ONLY in this exact JSON format, no markdown or extra text:\n"
-    + '{"days":[{"day":"Monday","meals":{"breakfast":{"name":"...","ingredients":["..."],"recipe":["Step 1..."]},"lunch":{"name":"...","ingredients":["..."],"recipe":["Step 1..."]},"dinner":{"name":"...","ingredients":["..."],"recipe":["Step 1..."]}}}],"shopping_list":["item1"]}';
-
-  try {
-    const geminiKey = getGeminiKey();
-    if (!geminiKey) {
-      state.generateError = "No Gemini API key set. Please add it in ⚙ Settings.";
-      state.loading = false; render(); return;
-    }
-    const geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + geminiKey;
-    const res = await fetch(geminiUrl, {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({
-        contents: [{parts: [{text: prompt}]}],
-        generationConfig: {temperature: 0.7, maxOutputTokens: 4000}
-      })
+  try{
+    const res=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key="+key,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.7,maxOutputTokens:4000}})
     });
-    if (!res.ok) {
-      const t = await res.text();
-      state.generateError = "API error " + res.status + ": " + t.slice(0,200);
-      state.loading = false; render(); return;
-    }
-    const data = await res.json();
-    if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
-      state.generateError = "Unexpected response: " + JSON.stringify(data).slice(0,200);
-      state.loading = false; render(); return;
-    }
-    const text = data.candidates[0].content.parts[0].text;
-    const clean = text.replace(/```json|```/g,"").trim();
-    state.mealPlan = JSON.parse(clean);
-    state.step = 3;
-  } catch(e) {
-    state.generateError = "Error: " + e.message;
-  }
-  state.loading = false; render();
+    if(!res.ok){ const t=await res.text(); S.generateError="API error "+res.status+": "+t.slice(0,200); S.loading=false; render(); return; }
+    const data=await res.json();
+    const text=data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if(!text){ S.generateError="Unexpected response: "+JSON.stringify(data).slice(0,200); S.loading=false; render(); return; }
+    const clean=text.replace(/```json|```/g,"").trim();
+    S.mealPlan=JSON.parse(clean);
+    S.step=3;
+  }catch(e){ S.generateError="Error: "+e.message; }
+  S.loading=false; render();
 }
 
-// ─── RENDER ───────────────────────────────────────────────────────────────────
-function dots() { return '<div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>'; }
+// Render helpers
+function dots(){ return '<div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>'; }
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
-function renderStepper() {
-  const steps = [{n:1,l:"Inventory"},{n:2,l:"Preferences"},{n:3,l:"Meal Plan"}];
-  return '<div class="stepper">' + steps.map((s,i) => {
-    const cls = state.step===s.n?"active":state.step>s.n?"done":"inactive";
-    return '<div class="step-item">'
-      + '<div class="step-circle '+cls+'">' + (state.step>s.n?"✓":s.n) + '</div>'
-      + '<span class="step-label '+cls+'">'+s.l+'</span>'
-      + '</div>'
-      + (i<2?'<div class="step-connector"></div>':"");
-  }).join("") + '</div>';
-}
-
-function renderHeader() {
-  const {binId,apiKey,syncing,lastSynced,syncError} = state;
-  const configured = binId && apiKey;
-  const dotCls = !configured?"":syncing?"syncing":syncError?"err":"live";
-  const syncMsg = !configured?"Not connected — open Settings to sync"
-    :syncing?"Syncing…"
-    :syncError?syncError
-    :lastSynced?"Synced "+fmtSync(lastSynced)
-    :"Connected";
+function renderHeader(){
+  const hasKey=!!geminiKey();
   return '<div class="header">'
-    + '<div class="header-row">'
-    + '<h1>Pantry <em>Planner</em></h1>'
-    + '<button class="settings-btn" onclick="openSettings()">⚙ Settings</button>'
-    + '</div>'
-    + '<div class="header-meta sync-row">'
-    + '<span class="sdot '+dotCls+'"></span>'
-    + '<span>'+syncMsg+'</span>'
-    + (configured&&!syncing?'<span style="cursor:pointer;color:#b8a898;margin-left:4px" onclick="fetchBin()">↻</span>':"")
-    + '</div>'
-    + '</div>';
+    +'<div class="header-row"><h1>Pantry <em>Planner</em></h1>'
+    +'<button class="settings-btn" onclick="S.showSettings=true;S.settingsDraft={geminiKey:ls(\'geminiKey\')||\'\'};render()">⚙ Settings</button></div>'
+    +'<div class="header-meta">'+(hasKey?'<span style="color:#6bcf8a">● API key set</span>':'<span style="color:#f08080">● No API key — tap Settings</span>')+'</div>'
+    +'</div>';
 }
 
-function renderInventory() {
-  const grouped = {};
-  CATEGORIES.forEach(c => { const items=state.inventory.filter(i=>i.category===c); if(items.length) grouped[c]=items; });
-  const chips = Object.entries(grouped).map(([cat,items]) =>
+function renderStepper(){
+  return '<div class="stepper">'+[{n:1,l:"Inventory"},{n:2,l:"Preferences"},{n:3,l:"Meal Plan"}].map((s,i)=>{
+    const c=S.step===s.n?"active":S.step>s.n?"done":"inactive";
+    return '<div class="step-item"><div class="step-circle '+c+'">'+(S.step>s.n?"✓":s.n)+'</div>'
+      +'<span class="step-label '+c+'">'+s.l+'</span></div>'+(i<2?'<div class="step-connector"></div>':"");
+  }).join("")+'</div>';
+}
+
+function renderInventory(){
+  const grouped={};
+  CATEGORIES.forEach(c=>{const items=S.inventory.filter(i=>i.category===c);if(items.length)grouped[c]=items;});
+  const chips=Object.entries(grouped).map(([cat,items])=>
     '<div class="cat-group"><div class="cat-label">'+cat+'</div><div class="inv-grid">'
-    + items.map(item =>
-      '<div class="inv-chip">'
-      + '<span>'+item.name+'</span>'
-      + (item.qty?'<span class="qty">· '+item.qty+'</span>':"")
-      + '<button onclick="removeItem('+item.id+')">×</button>'
-      + '</div>'
-    ).join("") + '</div></div>'
+    +items.map(item=>'<div class="inv-chip"><span>'+esc(item.name)+'</span>'
+      +(item.qty?'<span class="qty">· '+esc(item.qty)+'</span>':"")
+      +'<button onclick="removeItem('+item.id+')">×</button></div>').join("")
+    +'</div></div>'
   ).join("");
 
-  const warning = !state.binId || !state.apiKey
-    ? '<div class="warn-banner">⚠️ Sync not configured. Open Settings to connect JSONBin for shared inventory.</div>' : "";
-  const syncErr = state.syncError ? '<div class="error-banner">'+state.syncError+'</div>' : "";
-
   return '<div class="content">'
-    + warning + syncErr
-    + '<div class="toolbar">'
-    + '<h2 class="section-title">What\'s in your pantry?</h2>'
-    + '<div style="display:flex;gap:8px;align-items:center">'
-    + (state.inventory.length?'<span class="inv-count">'+state.inventory.length+' items</span>':"")
-    + (state.binId&&state.apiKey?'<button class="btn btn-secondary" style="font-size:12px;padding:5px 11px" onclick="fetchBin()">↻ Refresh</button>':"")
-    + '</div></div>'
-    + '<p class="section-desc">Add what you have on hand. Changes sync automatically.</p>'
-    + '<div class="card">'
-    + '<div class="add-row">'
-    + '<input class="name" placeholder="Item name (e.g. chicken breast)" value="'+state.newItem.name+'" oninput="state.newItem.name=this.value" onkeydown="if(event.key===\'Enter\')addItem()">'
-    + '<input class="qty" placeholder="Qty (e.g. 2 lbs)" value="'+state.newItem.qty+'" oninput="state.newItem.qty=this.value" onkeydown="if(event.key===\'Enter\')addItem()">'
-    + '<select onchange="state.newItem.category=this.value">'
-    + CATEGORIES.map(c=>'<option'+(c===state.newItem.category?" selected":"")+'>'+c+'</option>').join("")
-    + '</select>'
-    + '<button class="btn btn-primary" onclick="addItem()">+ Add</button>'
-    + '</div>'
-    + (state.inventory.length===0
-      ? '<div class="empty-state"><div class="icon">🫙</div><div>Add your first item above, or continue and the AI will assume a well-stocked kitchen.</div></div>'
-      : chips)
-    + '</div>'
-    + '<div class="nav-row"><div></div>'
-    + '<button class="btn btn-primary btn-lg" onclick="state.step=2;render()">Next: Preferences →</button>'
-    + '</div></div>';
+    +'<div class="toolbar"><h2 class="section-title">What\'s in your pantry?</h2>'
+    +(S.inventory.length?'<span class="inv-count">'+S.inventory.length+' items</span>':"")+'</div>'
+    +'<p class="section-desc">Add what you have on hand.</p>'
+    +'<div class="card">'
+    +'<div class="add-row">'
+    +'<input class="fi name" placeholder="Item name" value="'+esc(S.newItem.name)+'" oninput="S.newItem.name=this.value" onkeydown="if(event.key===\'Enter\')addItem()">'
+    +'<input class="fi qty" placeholder="Qty (e.g. 2 lbs)" value="'+esc(S.newItem.qty)+'" oninput="S.newItem.qty=this.value" onkeydown="if(event.key===\'Enter\')addItem()">'
+    +'<select class="fi cat" onchange="S.newItem.category=this.value">'+CATEGORIES.map(c=>'<option'+(c===S.newItem.category?" selected":"")+'>'+c+'</option>').join("")+'</select>'
+    +'<button class="btn btn-primary" onclick="addItem()">+ Add</button>'
+    +'</div>'
+    +(S.inventory.length===0?'<div class="empty-state"><div class="icon">🫙</div><div>Add your first item, or continue and the AI will assume a well-stocked kitchen.</div></div>':chips)
+    +'</div>'
+    +'<div class="nav-row"><div></div><button class="btn btn-primary btn-lg" onclick="S.step=2;render()">Next: Preferences →</button></div>'
+    +'</div>';
 }
 
-function renderPreferences() {
-  const dietToggles = DIETARY_OPTIONS.map(opt => {
-    const active = state.dietPrefs.includes(opt.id);
-    return '<div class="diet-toggle'+(active?" active":"")+'" onclick="togglePref(\''+opt.id+'\')">'
-      + '<span class="emoji">'+opt.emoji+'</span><span>'+opt.label+'</span>'
-      + (active?'<span class="diet-check">✓</span>':"")
-      + '</div>';
+function renderPreferences(){
+  const dietHtml=DIET_OPTIONS.map(o=>{
+    const active=S.dietPrefs.includes(o.id);
+    return '<div class="diet-toggle'+(active?" active":"")+'" onclick="togglePref(\''+o.id+'\')">'
+      +'<span>'+o.emoji+'</span><span>'+o.label+'</span>'+(active?'<span style="margin-left:auto">✓</span>':"")+'</div>';
   }).join("");
 
-  const members = state.household.map(m =>
+  const membersHtml=S.household.map(m=>
     '<div class="member-row">'
-    + '<input class="member-name" placeholder="Name" value="'+m.name+'" oninput="updateMember('+m.id+',\'name\',this.value)">'
-    + '<select class="member-type" onchange="updateMember('+m.id+',\'type\',this.value)">'
-    + ['adult','child','toddler','infant'].map(t=>'<option'+(t===m.type?" selected":"")+'>'+t+'</option>').join("")
-    + '</select>'
-    + '<input class="member-age" placeholder="Age" value="'+m.age+'" oninput="updateMember('+m.id+',\'age\',this.value)">'
-    + '<button class="rm-btn" onclick="removeMember('+m.id+')">×</button>'
-    + '</div>'
+    +'<input class="mname" placeholder="Name" value="'+esc(m.name)+'" oninput="updateMember('+m.id+',\'name\',this.value)">'
+    +'<select class="mtype" onchange="updateMember('+m.id+',\'type\',this.value)">'
+    +['adult','child','toddler','infant'].map(t=>'<option'+(t===m.type?" selected":"")+'>'+t+'</option>').join("")
+    +'</select>'
+    +'<input class="mage" placeholder="Age" value="'+esc(m.age)+'" oninput="updateMember('+m.id+',\'age\',this.value)">'
+    +'<button class="rm-btn" onclick="removeMember('+m.id+')">×</button>'
+    +'</div>'
   ).join("");
 
-  const fixedItems = state.fixedMeals.map(m =>
-    '<div class="fixed-item">'
-    + '<div><span class="fixed-day">'+m.day+' · '+m.mealType+'</span><span style="font-size:14px">'+m.description+'</span></div>'
-    + '<button class="rm-btn" onclick="removeFixedMeal('+m.id+')">×</button>'
-    + '</div>'
+  const fixedHtml=S.fixedMeals.map(m=>
+    '<div class="fixed-item"><div>'
+    +'<span class="fixed-day">'+m.day+' · '+m.mealType+'</span>'
+    +'<span style="font-size:14px">'+esc(m.description)+'</span>'
+    +'</div><button class="rm-btn" onclick="removeFixedMeal('+m.id+')">×</button></div>'
   ).join("");
 
-  const fixedForm = state.showFixedForm ? '<div class="fixed-form">'
-    + '<div class="fixed-form-row">'
-    + '<select onchange="state.newFixed.day=this.value">'
-    + DAYS.map(d=>'<option'+(d===state.newFixed.day?" selected":"")+'>'+d+'</option>').join("")
-    + '</select>'
-    + '<select onchange="state.newFixed.mealType=this.value">'
-    + ['breakfast','lunch','dinner'].map(t=>'<option'+(t===state.newFixed.mealType?" selected":"")+'>'+t+'</option>').join("")
-    + '</select>'
-    + '</div>'
-    + '<input placeholder="e.g. Salmon with white rice and veggies" value="'+state.newFixed.description+'" oninput="state.newFixed.description=this.value" onkeydown="if(event.key===\'Enter\')addFixedMeal()">'
-    + '<div style="display:flex;gap:8px;justify-content:flex-end">'
-    + '<button class="btn btn-secondary" style="font-size:13px;padding:6px 14px" onclick="state.showFixedForm=false;render()">Cancel</button>'
-    + '<button class="btn btn-primary" style="font-size:13px;padding:6px 14px" onclick="addFixedMeal()">Add</button>'
-    + '</div></div>' : "";
+  const fixedForm=S.showFixedForm?'<div class="fixed-form">'
+    +'<div class="fixed-form-row">'
+    +'<select onchange="S.newFixed.day=this.value">'+DAYS.map(d=>'<option'+(d===S.newFixed.day?" selected":"")+'>'+d+'</option>').join("")+'</select>'
+    +'<select onchange="S.newFixed.mealType=this.value">'+['breakfast','lunch','dinner'].map(t=>'<option'+(t===S.newFixed.mealType?" selected":"")+'>'+t+'</option>').join("")+'</select>'
+    +'</div>'
+    +'<input class="fdesc" placeholder="e.g. Salmon with white rice and veggies" value="'+esc(S.newFixed.description)+'" oninput="S.newFixed.description=this.value" onkeydown="if(event.key===\'Enter\')addFixedMeal()">'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end">'
+    +'<button class="btn btn-secondary" style="font-size:13px;padding:6px 14px" onclick="S.showFixedForm=false;render()">Cancel</button>'
+    +'<button class="btn btn-primary" style="font-size:13px;padding:6px 14px" onclick="addFixedMeal()">Add</button>'
+    +'</div></div>':"";
 
-  const noKeyWarning = !getGeminiKey() ? '<div class="warn-banner">⚠️ No Gemini API key set — add it in ⚙ Settings before generating a plan.</div>' : "";
-  const errHtml = state.generateError ? '<div class="error-banner">⚠️ '+state.generateError+'</div>' : "";
+  const noKey=!geminiKey()?'<div class="warn-banner">⚠️ No Gemini API key set — tap ⚙ Settings before generating.</div>':"";
+  const err=S.generateError?'<div class="error-banner">⚠️ '+esc(S.generateError)+'</div>':"";
 
   return '<div class="content">'
-    + '<h2 class="section-title">Preferences</h2>'
-    + '<p class="section-desc">Saved locally on this device.</p>'
-
-    + '<div class="pref-section"><div class="sub-label">Dietary</div></div>'
-    + '<div class="diet-grid">'+dietToggles+'</div>'
-
-    + '<div class="pref-section">'
-    + '<div class="sub-label" style="margin-bottom:8px">Household Members</div>'
-    + members
-    + '<button class="btn btn-secondary" style="font-size:13px;padding:6px 14px;margin-top:4px" onclick="addMember()">+ Add person</button>'
-    + '</div>'
-
-    + '<div class="pref-section">'
-    + '<div class="sub-label">Ingredients to Avoid</div>'
-    + '<div class="sub-desc" style="margin-bottom:8px">Allergies or dislikes, comma separated</div>'
-    + '<input class="field-input" style="width:100%" placeholder="e.g. banana, avocado" value="'+state.avoid+'" oninput="state.avoid=this.value;save(\'avoid\',state.avoid)">'
-    + '</div>'
-
-    + '<div class="pref-section">'
-    + '<div class="section-header">'
-    + '<div><div class="sub-label">Fixed Meals</div><div class="sub-desc">Always the same on a given day</div></div>'
-    + '<button class="btn btn-secondary" style="font-size:13px;padding:6px 12px" onclick="state.showFixedForm=!state.showFixedForm;render()">+ Add</button>'
-    + '</div>'
-    + (state.fixedMeals.length===0&&!state.showFixedForm?'<div style="font-size:13px;color:var(--muted);font-style:italic;padding:10px 0">No fixed meals yet</div>':"")
-    + fixedItems + fixedForm
-    + '</div>'
-
-    + noKeyWarning + errHtml
-    + '<div class="nav-row">'
-    + '<button class="btn btn-secondary" onclick="state.step=1;render()">← Back</button>'
-    + '<button class="btn btn-primary btn-lg" onclick="generatePlan()" '+(state.loading?"disabled":"")+'>'+( state.loading?dots()+" Generating…":"✨ Generate Meal Plan")+'</button>'
-    + '</div></div>';
+    +'<h2 class="section-title">Preferences</h2>'
+    +'<p class="section-desc">Saved locally on this device.</p>'
+    +'<div class="pref-section"><div class="sub-label">Dietary</div><div class="diet-grid">'+dietHtml+'</div></div>'
+    +'<div class="pref-section"><div class="sub-label">Household Members</div>'
+    +membersHtml
+    +'<button class="btn btn-secondary" style="font-size:13px;padding:6px 14px;margin-top:4px" onclick="addMember()">+ Add person</button></div>'
+    +'<div class="pref-section"><div class="sub-label">Ingredients to Avoid</div>'
+    +'<div class="sub-desc" style="margin-bottom:8px">Allergies or dislikes, comma separated</div>'
+    +'<input class="fi" style="width:100%" placeholder="e.g. banana, avocado" value="'+esc(S.avoid)+'" oninput="S.avoid=this.value;ls(\'avoid\',S.avoid)"></div>'
+    +'<div class="pref-section">'
+    +'<div class="section-hdr"><div><div class="sub-label">Fixed Meals</div><div class="sub-desc">Always the same on a given day</div></div>'
+    +'<button class="btn btn-secondary" style="font-size:13px;padding:6px 12px" onclick="S.showFixedForm=!S.showFixedForm;render()">+ Add</button></div>'
+    +(S.fixedMeals.length===0&&!S.showFixedForm?'<div style="font-size:13px;color:var(--muted);font-style:italic;padding:8px 0">No fixed meals yet</div>':"")
+    +fixedHtml+fixedForm+'</div>'
+    +noKey+err
+    +'<div class="nav-row">'
+    +'<button class="btn btn-secondary" onclick="S.step=1;render()">← Back</button>'
+    +'<button class="btn btn-primary btn-lg" onclick="generatePlan()" '+(S.loading?"disabled":"")+'>'+( S.loading?dots()+" Generating…":"✨ Generate Meal Plan")+'</button>'
+    +'</div></div>';
 }
 
-function renderMealPlan() {
-  const {mealPlan, dietPrefs, household} = state;
-  const kids = household.filter(m=>m.type==="child"||m.type==="toddler"||m.type==="infant").length;
+function renderMealPlan(){
+  const kids=S.household.filter(m=>["child","toddler","infant"].includes(m.type)).length;
+  const meta=(S.dietPrefs.length?S.dietPrefs.map(p=>DIET_OPTIONS.find(o=>o.id===p)?.label).join(", ")+" · ":"")
+    +S.household.length+" people · "+kids+" kids";
 
-  const days = mealPlan.days.map(dayData => {
-    const isOpen = state.expandedDay === dayData.day;
-    const previews = ["breakfast","lunch","dinner"].map(m =>
-      '<span class="meal-badge">'+(dayData.meals[m]?.name||"")+'</span>'
-    ).join("");
-    const meals = ["breakfast","lunch","dinner"].map(mealType => {
-      const meal = dayData.meals[mealType];
-      if (!meal) return "";
-      const ings = (meal.ingredients||[]).map(ing => {
-        const need = ing.startsWith("*");
-        return '<span class="ing-tag'+(need?" need":"")+'">'+( need?"🛒 "+ing.slice(1).trim():ing)+'</span>';
+  const daysHtml=S.mealPlan.days.map(dayData=>{
+    const open=S.expandedDay===dayData.day;
+    const previews=["breakfast","lunch","dinner"].map(m=>'<span class="meal-badge">'+esc(dayData.meals[m]?.name||"")+'</span>').join("");
+    const mealsHtml=["breakfast","lunch","dinner"].map(mt=>{
+      const meal=dayData.meals[mt]; if(!meal)return "";
+      const ings=(meal.ingredients||[]).map(ing=>{
+        const need=ing.startsWith("*");
+        return '<span class="ing-tag'+(need?" need":"")+'">'+esc(need?"🛒 "+ing.slice(1).trim():ing)+'</span>';
       }).join("");
-      const steps = (meal.recipe||[]).map((s,i) =>
-        '<div class="recipe-step"><span class="step-num">'+(i+1)+'</span><span>'+s+'</span></div>'
-      ).join("");
+      const steps=(meal.recipe||[]).map((s,i)=>'<div class="recipe-step"><span class="step-num">'+(i+1)+'</span><span>'+esc(s)+'</span></div>').join("");
       return '<div class="meal-row">'
-        + '<div class="meal-type">'+mealType+'</div>'
-        + '<div class="meal-name">'+meal.name+'</div>'
-        + '<div class="ingredients">'+ings+'</div>'
-        + (steps?'<div class="recipe-block"><div class="recipe-title">Recipe</div>'+steps+'</div>':"")
-        + '</div>';
+        +'<div class="meal-type">'+mt+'</div>'
+        +'<div class="meal-name">'+esc(meal.name)+'</div>'
+        +'<div class="ingredients">'+ings+'</div>'
+        +(steps?'<div class="recipe-block"><div class="recipe-title">Recipe</div>'+steps+'</div>':"")
+        +'</div>';
     }).join("");
-
     return '<div class="day-card">'
-      + '<div class="day-header" onclick="toggleDay(\''+dayData.day+'\')">'
-      + '<span class="day-name">'+dayData.day+'</span>'
-      + '<div style="display:flex;align-items:center">'
-      + '<div class="day-preview">'+previews+'</div>'
-      + '<span class="chevron'+(isOpen?" open":"")+'">▼</span>'
-      + '</div></div>'
-      + '<div class="day-meals'+(isOpen?" open":"")+'">'+ meals +'</div>'
-      + '</div>';
+      +'<div class="day-header" onclick="toggleDay(\''+dayData.day+'\')">'
+      +'<span class="day-name">'+dayData.day+'</span>'
+      +'<div style="display:flex;align-items:center"><div class="day-preview">'+previews+'</div>'
+      +'<span class="chevron'+(open?" open":"")+'">▼</span></div></div>'
+      +'<div class="day-meals'+(open?" open":"")+'">'+mealsHtml+'</div>'
+      +'</div>';
   }).join("");
 
-  const shopping = mealPlan.shopping_list?.length
-    ? '<div class="shopping-card"><div class="shopping-title">🛒 Shopping List</div><div class="shopping-grid">'
-      + mealPlan.shopping_list.map(i=>'<span class="shop-item">'+i+'</span>').join("")
-      + '</div></div>' : "";
-
-  const meta = (dietPrefs.length?dietPrefs.map(p=>DIETARY_OPTIONS.find(o=>o.id===p)?.label).join(", ")+" · ":"")
-    + household.length + " people · " + kids + " kids";
+  const shopping=S.mealPlan.shopping_list?.length
+    ?'<div class="shopping-card"><div class="shopping-title">🛒 Shopping List</div><div class="shopping-grid">'
+      +S.mealPlan.shopping_list.map(i=>'<span class="shop-item">'+esc(i)+'</span>').join("")
+      +'</div></div>':"";
 
   return '<div class="content">'
-    + '<div class="plan-header">'
-    + '<div><h2 class="section-title">Your Week\'s Meal Plan</h2>'
-    + '<p class="section-desc">'+meta+' · <span style="color:#9a5a10">🛒 = needs shopping</span></p></div>'
-    + '<div style="display:flex;gap:10px">'
-    + '<button class="btn btn-secondary" onclick="state.step=2;render()">← Adjust</button>'
-    + '<button class="btn btn-primary" onclick="generatePlan()">↻ Regenerate</button>'
-    + '</div></div>'
-    + days + shopping + '</div>';
+    +'<div class="plan-header"><div><h2 class="section-title">Your Week\'s Meal Plan</h2>'
+    +'<p class="section-desc">'+meta+' · <span style="color:#9a5a10">🛒 = needs shopping</span></p></div>'
+    +'<div style="display:flex;gap:10px">'
+    +'<button class="btn btn-secondary" onclick="S.step=2;render()">← Adjust</button>'
+    +'<button class="btn btn-primary" onclick="generatePlan()">↻ Regenerate</button>'
+    +'</div></div>'
+    +daysHtml+shopping+'</div>';
 }
 
-function renderSettings() {
-  if (!state.showSettings) return "";
-  return '<div class="overlay" onclick="if(event.target===this){state.showSettings=false;render()}">'
-    + '<div class="settings-panel">'
-    + '<div class="settings-title">⚙️ JSONBin Settings</div>'
-    + '<p class="settings-desc">Connect a JSONBin bin to sync your inventory across devices — no account needed for whoever you share the app with.<br><br>'
-    + '<a href="https://jsonbin.io" target="_blank" style="color:var(--accent)">→ Create a free JSONBin account</a>, make a new bin with <code style="background:var(--bg);padding:1px 6px;border-radius:4px;font-size:12px">{"inventory":[]}</code>, then paste your credentials below.</p>'
-    + '<div class="field"><label>Gemini API Key</label>'
-    + '<input type="password" placeholder="AIza..." value="'+state.settingsDraft.geminiKey+'" oninput="state.settingsDraft.geminiKey=this.value.trim()">'
-    + '<div style="font-size:12px;color:var(--muted);margin-top:4px">Get yours free at <a href="https://aistudio.google.com" target="_blank" style="color:var(--accent)">aistudio.google.com</a> → API Keys</div></div>'
-    + '<div class="field"><label>Bin ID</label>'
-    + '<input placeholder="e.g. 64a1b2c3d4e5f6..." value="'+state.settingsDraft.binId+'" oninput="state.settingsDraft.binId=this.value.trim()"></div>'
-    + '<div class="field"><label>Master Key (API Key)</label>'
-    + '<input type="password" placeholder="$2a$10$..." value="'+state.settingsDraft.apiKey+'" oninput="state.settingsDraft.apiKey=this.value.trim()"></div>'
-    + '<div class="settings-actions">'
-    + '<button class="btn btn-secondary" onclick="state.showSettings=false;state.settingsDraft={binId:state.binId,apiKey:state.apiKey};render()">Cancel</button>'
-    + '<button class="btn btn-primary" onclick="saveSettings()" '+(state.settingsDraft.geminiKey?"":"disabled")+'>Save</button>'
-    + '</div></div></div>';
+function renderSettings(){
+  if(!S.showSettings)return "";
+  return '<div class="overlay" onclick="if(event.target===this){S.showSettings=false;render()}">'
+    +'<div class="settings-panel">'
+    +'<div class="settings-title">⚙️ Settings</div>'
+    +'<p class="settings-desc">Your Gemini API key is stored only in this browser — never on GitHub or any server.<br><br>'
+    +'<a href="https://aistudio.google.com" target="_blank" style="color:var(--accent)">→ Get a free key at aistudio.google.com</a></p>'
+    +'<div class="field"><label>Gemini API Key</label>'
+    +'<input type="password" placeholder="AIza..." value="'+esc(S.settingsDraft.geminiKey)+'" oninput="S.settingsDraft.geminiKey=this.value.trim()">'
+    +'<div style="font-size:12px;color:var(--muted);margin-top:5px">Tip: restrict this key to your GitHub Pages domain in AI Studio for extra security.</div></div>'
+    +'<div class="settings-actions">'
+    +'<button class="btn btn-secondary" onclick="S.showSettings=false;render()">Cancel</button>'
+    +'<button class="btn btn-primary" onclick="saveSettings()" '+(S.settingsDraft.geminiKey?"":"disabled")+'>Save</button>'
+    +'</div></div></div>';
 }
 
-function render() {
-  const step = state.step;
-  let html = renderHeader() + renderStepper();
-  if (state.loading && step===2) {
-    html += '<div class="loading-wrap"><div class="ltitle">Crafting your week…</div><p>Planning 7 days of meals around your pantry.</p>'+dots()+'</div>';
-  } else if (step===1) {
-    html += renderInventory();
-  } else if (step===2) {
-    html += renderPreferences();
-  } else if (step===3 && state.mealPlan) {
-    html += renderMealPlan();
+function render(){
+  let html=renderHeader()+renderStepper();
+  if(S.loading){
+    html+='<div class="loading-wrap"><div class="ltitle">Crafting your week…</div><p>Planning 7 days of meals around your pantry.</p>'+dots()+'</div>';
+  } else if(S.step===1){
+    html+=renderInventory();
+  } else if(S.step===2){
+    html+=renderPreferences();
+  } else if(S.step===3&&S.mealPlan){
+    html+=renderMealPlan();
   }
-  html += renderSettings();
-  document.getElementById("app").innerHTML = html;
+  html+=renderSettings();
+  document.getElementById("app").innerHTML=html;
 }
 
-function toggleDay(day) { state.expandedDay = state.expandedDay===day?null:day; render(); }
-function openSettings() { state.settingsDraft={binId:state.binId,apiKey:state.apiKey,geminiKey:localStorage.getItem('geminiKey')||''}; state.showSettings=true; render(); }
-
-// ─── INIT ─────────────────────────────────────────────────────────────────────
 loadAll();
 render();
-if (state.binId && state.apiKey) fetchBin();
-setInterval(render, 30000); // refresh sync timestamp display
+setInterval(render,30000);
 </script>
 </body>
 </html>
