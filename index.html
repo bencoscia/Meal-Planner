@@ -408,16 +408,26 @@ async function generatePlan(){
 
   function cleanJson(text){
     let s=text.replace(/```json|```/g,"").trim();
-    // Extract first JSON object if there's surrounding text
+    // Extract first JSON object
     const start=s.indexOf('{'), end=s.lastIndexOf('}');
     if(start!==-1&&end!==-1) s=s.slice(start,end+1);
-    // Fix literal \n and \t sequences outside of already-escaped contexts
-    s=s.replace(/\\n/g,' ').replace(/\\t/g,' ');
+    // Replace literal \n \t \r with space
+    s=s.replace(/\\n/g,' ').replace(/\\t/g,' ').replace(/\\r/g,' ');
+    // Remove actual control characters
+    s=s.replace(/[\x00-\x1F\x7F]/g,' ');
     // Fix trailing commas before } or ]
     s=s.replace(/,\s*([}\]])/g,'$1');
-    // Remove actual newlines and tabs inside the JSON (between tokens)
-    s=s.replace(/[\t\r]/g,' ');
-    return JSON.parse(s);
+    // Fix missing commas between array elements: "text" "text" -> "text", "text"
+    s=s.replace(/"\s+"/g,'", "');
+    // Fix single quotes used instead of double quotes (Gemini occasionally does this)
+    // Only safe to do for keys, not values - skip for now
+    try{
+      return JSON.parse(s);
+    }catch(e){
+      // Last resort: try to extract just the days array and rebuild
+      console.error("JSON parse failed:", e.message, "\nRaw:", s.slice(0,300));
+      throw new Error("Could not parse AI response. Please try regenerating.");
+    }
   }
 
   try{
@@ -484,7 +494,10 @@ function renderInventory(){
   ).join("");
   return '<div class="content">'
     +'<div class="toolbar"><h2 class="section-title">What\'s in your pantry?</h2>'
-    +(S.inventory.length?'<span class="inv-count">'+S.inventory.length+' items</span>':"")+'</div>'
+    +'<div style="display:flex;gap:8px;align-items:center">'
+    +(S.inventory.length?'<span class="inv-count">'+S.inventory.length+' items</span>':"") 
+    +(S.scriptUrl?'<button class="btn btn-secondary" style="font-size:12px;padding:5px 11px" onclick="fetchSync()">'+( S.syncing?'↻ Syncing…':'↻ Sync now')+'</button>':"") 
+    +'</div></div>'
     +'<p class="section-desc">Add what you have on hand. Changes sync automatically.</p>'
     +'<div class="card">'
     +'<div class="add-row">'
