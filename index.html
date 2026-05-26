@@ -14,7 +14,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .header-row{display:flex;justify-content:space-between;align-items:center;}
 .header h1{font-family:'Playfair Display',serif;font-size:26px;font-weight:400;}
 .header h1 em{font-style:italic;color:#e8954a;}
-.header-meta{font-size:12px;margin-top:5px;}
+.header-meta{font-size:12px;margin-top:5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.sdot{width:7px;height:7px;border-radius:50%;background:#b8a898;flex-shrink:0;display:inline-block;}
+.sdot.live{background:#6bcf8a;}
+.sdot.err{background:#f08080;}
+.sdot.syncing{background:#e8954a;animation:pulse 1s ease-in-out infinite;}
 .settings-btn{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:#faf7f2;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif;}
 .settings-btn:hover{background:rgba(255,255,255,0.2);}
 .stepper{display:flex;align-items:center;padding:14px 24px;background:var(--surface);border-bottom:1px solid var(--border);}
@@ -74,7 +78,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .fixed-form select{flex:1;min-width:100px;}
 .fixed-form input.fdesc{width:100%;margin-bottom:8px;}
 .nav-row{display:flex;justify-content:space-between;align-items:center;margin-top:28px;padding-top:20px;border-top:1px solid var(--border);}
-.error-banner{font-size:13px;padding:10px 14px;border-radius:8px;margin-bottom:16px;background:#fff0f0;color:#c0392b;border:1px solid #f0b0b0;word-break:break-word;}
 .warn-banner{font-size:13px;padding:10px 14px;border-radius:8px;margin-bottom:16px;background:#fff8ec;color:#7a5a10;border:1px solid #f0d090;}
 .loading-wrap{text-align:center;padding:60px 24px;}
 .loading-wrap .ltitle{font-family:'Playfair Display',serif;font-size:22px;margin-bottom:10px;}
@@ -111,20 +114,24 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .shopping-grid{display:flex;flex-wrap:wrap;gap:7px;}
 .shop-item{font-size:13px;background:white;border:1px solid #b5d4be;border-radius:14px;padding:4px 12px;color:#2a5a38;}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;}
-.settings-panel{background:var(--surface);border-radius:16px;width:100%;max-width:460px;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,0.2);}
+.settings-panel{background:var(--surface);border-radius:16px;width:100%;max-width:480px;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,0.2);max-height:90vh;overflow-y:auto;}
 .settings-title{font-family:'Playfair Display',serif;font-size:22px;margin-bottom:6px;}
-.settings-desc{font-size:13px;color:var(--muted);margin-bottom:24px;line-height:1.6;}
+.settings-desc{font-size:13px;color:var(--muted);margin-bottom:20px;line-height:1.6;}
 .field{margin-bottom:16px;}
 .field label{display:block;font-size:12px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;}
 .field input{width:100%;font-family:'DM Sans',sans-serif;font-size:14px;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none;}
 .field input:focus{border-color:var(--accent);}
+.field-note{font-size:12px;color:var(--muted);margin-top:5px;line-height:1.4;}
+.settings-section{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin:20px 0 12px;padding-top:16px;border-top:1px solid var(--border);}
 .settings-actions{display:flex;gap:10px;margin-top:24px;justify-content:flex-end;}
 .pref-section{margin-bottom:24px;}
 .sub-label{font-size:14px;font-weight:500;margin-bottom:8px;}
 .sub-desc{font-size:13px;color:var(--muted);}
 .section-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;}
-
-/* ── Responsive / Mobile ─────────────────────────────────────────── */
+/* Error banner */
+.error-bar{background:#fff0f0;color:#c0392b;border-bottom:3px solid #f0b0b0;padding:12px 20px;font-size:14px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
+.error-bar button{background:none;border:none;cursor:pointer;color:#c0392b;font-size:20px;line-height:1;flex-shrink:0;}
+/* Responsive */
 @media(max-width:600px){
   .content{padding:16px 14px 80px;}
   .header{padding:14px 16px 12px;}
@@ -133,52 +140,23 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   .step-label{font-size:11px;}
   .step-circle{width:24px;height:24px;font-size:11px;}
   .section-title{font-size:19px;}
-
-  /* Add row stacks vertically on mobile */
   .add-row{flex-direction:column;}
   .add-row .fi{width:100%!important;flex:none!important;}
   .add-row .btn{width:100%;justify-content:center;}
-
-  /* Inventory chips slightly larger tap area */
   .inv-chip{padding:6px 12px 6px 14px;font-size:14px;}
-
-  /* Dietary grid 2 cols on mobile */
   .diet-grid{grid-template-columns:1fr 1fr;}
-
-  /* Member rows stack */
-  .member-row{flex-wrap:wrap;}
   .member-row .mname{flex:1 1 100%;}
-  .member-row .mtype{flex:1;}
-  .member-row .mage{flex:0 0 64px;}
-
-  /* Fixed form stacks */
   .fixed-form-row{flex-direction:column;}
   .fixed-form-row select{width:100%;}
-
-  /* Nav row stacks on very small screens */
   .nav-row{flex-direction:column;gap:10px;}
   .nav-row .btn{width:100%;justify-content:center;}
-
-  /* Plan header stacks */
   .plan-header{flex-direction:column;}
   .plan-header>div:last-child{display:flex;gap:8px;width:100%;}
   .plan-header>div:last-child .btn{flex:1;justify-content:center;}
-
-  /* Day cards: hide meal badge previews on tiny screens, just show day name */
   .day-preview{display:none;}
   .day-header{padding:14px;}
-
-  /* Meal rows */
   .meal-row{padding:12px 14px;}
-
-  /* Shopping grid */
-  .shopping-grid{gap:6px;}
-  .shop-item{font-size:13px;}
-
-  /* Settings panel full width */
   .settings-panel{padding:20px 18px;}
-
-  /* Bottom sticky nav on mobile for easier thumb reach */
   .mobile-nav{display:flex;position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--border);padding:10px 16px;gap:10px;z-index:50;box-shadow:0 -4px 20px rgba(0,0,0,0.08);}
   .mobile-nav .btn{flex:1;justify-content:center;padding:12px;}
   .desktop-nav{display:none;}
@@ -226,7 +204,7 @@ const SEED=[
   {id:41,name:"Cornstarch",qty:"",category:"Pantry"},
 ];
 
-// State
+// ── State ─────────────────────────────────────────────────────────────────────
 const S={
   step:1, showSettings:false,
   inventory:[], newItem:{name:"",qty:"",category:"Produce"},
@@ -241,11 +219,19 @@ const S={
   fixedMeals:[{id:1,day:"Tuesday",mealType:"dinner",description:"Salmon with white rice and veggies"}],
   showFixedForm:false, newFixed:{day:"Monday",mealType:"dinner",description:""},
   mealPlan:null, loading:false, generateError:"", expandedDay:null,
-  settingsDraft:{geminiKey:""},
+  settingsDraft:{geminiKey:"",scriptUrl:"",userName:""},
+  // Sync state
+  scriptUrl:"", userName:"",
+  syncing:false, lastSynced:null, syncError:"",
 };
 
-// Storage
-function ls(k,v){if(v===undefined){try{const x=localStorage.getItem(k);return x?JSON.parse(x):null;}catch(e){return null;}}try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
+// ── Storage ───────────────────────────────────────────────────────────────────
+function ls(k,v){
+  if(v===undefined){try{const x=localStorage.getItem(k);return x?JSON.parse(x):null;}catch(e){return null;}}
+  try{if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,JSON.stringify(v));}catch(e){}
+}
+
+const SYNC_KEYS=["inventory","dietPrefs","household","avoid","fixedMeals","mealPlan"];
 
 function loadAll(){
   S.inventory   = ls("inventory") || SEED;
@@ -253,75 +239,154 @@ function loadAll(){
   S.household   = ls("household") || S.household;
   S.avoid       = ls("avoid") ?? "banana, avocado";
   S.fixedMeals  = ls("fixedMeals") || S.fixedMeals;
-  S.settingsDraft = {geminiKey: ls("geminiKey") || ""};
-  const savedPlan = ls("mealPlan");
-  if(savedPlan){ S.mealPlan=savedPlan; S.step=3; }
+  S.mealPlan    = ls("mealPlan") || null;
+  S.scriptUrl   = ls("scriptUrl") || "";
+  S.userName    = ls("userName") || "";
+  S.settingsDraft = {geminiKey:ls("geminiKey")||"", scriptUrl:S.scriptUrl, userName:S.userName};
+  if(S.mealPlan) S.step=3;
 }
 
-function geminiKey(){ return ls("geminiKey") || ""; }
+function geminiKey(){ return ls("geminiKey")||""; }
 
-// Actions
-function setInv(items){ S.inventory=items; ls("inventory",items); render(); }
+// ── Google Apps Script Sync ───────────────────────────────────────────────────
+let syncTimer=null;
+let pollInterval=null;
+
+function fmtTime(iso){
+  if(!iso)return "";
+  const d=new Date(iso),now=new Date(),diff=Math.floor((now-d)/60000);
+  if(diff<1)return "just now";
+  if(diff<60)return diff+"m ago";
+  const h=Math.floor(diff/60);
+  return h<24?h+"h ago":d.toLocaleDateString();
+}
+
+async function fetchSync(){
+  if(!S.scriptUrl)return;
+  S.syncing=true; S.syncError=""; render();
+  try{
+    const res=await fetch(S.scriptUrl);
+    if(!res.ok)throw new Error("HTTP "+res.status);
+    const data=await res.json();
+    // Apply remote data to local state, save to localStorage
+    SYNC_KEYS.forEach(k=>{
+      if(data[k]!==undefined){
+        S[k]=data[k];
+        ls(k,data[k]);
+      }
+    });
+    if(S.mealPlan && S.step!==3) S.step=3;
+    S.lastSynced=new Date().toISOString();
+  }catch(e){ S.syncError="Sync failed: "+e.message; }
+  S.syncing=false; render();
+}
+
+function pushSync(){
+  if(!S.scriptUrl)return;
+  clearTimeout(syncTimer);
+  syncTimer=setTimeout(async()=>{
+    S.syncing=true; render();
+    try{
+      const payload={updatedBy:S.userName||"unknown"};
+      SYNC_KEYS.forEach(k=>{ payload[k]=S[k]; });
+      const res=await fetch(S.scriptUrl,{
+        method:"POST",
+        headers:{"Content-Type":"text/plain"},
+        body:JSON.stringify(payload)
+      });
+      if(!res.ok)throw new Error("HTTP "+res.status);
+      S.lastSynced=new Date().toISOString();
+      S.syncError="";
+    }catch(e){ S.syncError="Sync failed: "+e.message; }
+    S.syncing=false; render();
+  },1000);
+}
+
+function startPolling(){
+  if(pollInterval)clearInterval(pollInterval);
+  if(S.scriptUrl) pollInterval=setInterval(fetchSync,60000);
+}
+
+// ── Actions ───────────────────────────────────────────────────────────────────
+function setAndSync(key,value){
+  S[key]=value; ls(key,value); pushSync(); render();
+}
+
+function setInv(items){ setAndSync("inventory",items); }
 function addItem(){
   const name=S.newItem.name.trim(); if(!name)return;
   setInv([...S.inventory,{id:Date.now(),name,qty:S.newItem.qty,category:S.newItem.category}]);
   S.newItem={name:"",qty:"",category:S.newItem.category};
 }
 function removeItem(id){ setInv(S.inventory.filter(i=>i.id!==id)); }
+
 function togglePref(id){
-  S.dietPrefs=S.dietPrefs.includes(id)?S.dietPrefs.filter(p=>p!==id):[...S.dietPrefs,id];
-  ls("dietPrefs",S.dietPrefs); render();
+  const updated=S.dietPrefs.includes(id)?S.dietPrefs.filter(p=>p!==id):[...S.dietPrefs,id];
+  setAndSync("dietPrefs",updated);
 }
+
 function updateMember(id,field,value){
-  S.household=S.household.map(m=>m.id===id?{...m,[field]:value}:m);
-  ls("household",S.household); render();
+  const updated=S.household.map(m=>m.id===id?{...m,[field]:value}:m);
+  setAndSync("household",updated);
 }
-function addMember(){ S.household=[...S.household,{id:Date.now(),name:"",type:"adult",age:""}]; ls("household",S.household); render(); }
-function removeMember(id){ S.household=S.household.filter(m=>m.id!==id); ls("household",S.household); render(); }
+function addMember(){
+  setAndSync("household",[...S.household,{id:Date.now(),name:"",type:"adult",age:""}]);
+}
+function removeMember(id){
+  setAndSync("household",S.household.filter(m=>m.id!==id));
+}
+
 function addFixedMeal(){
   const desc=S.newFixed.description.trim(); if(!desc)return;
-  S.fixedMeals=[...S.fixedMeals,{id:Date.now(),...S.newFixed,description:desc}];
-  ls("fixedMeals",S.fixedMeals);
+  const updated=[...S.fixedMeals,{id:Date.now(),...S.newFixed,description:desc}];
+  setAndSync("fixedMeals",updated);
   S.newFixed={day:"Monday",mealType:"dinner",description:""};
   S.showFixedForm=false; render();
 }
-function removeFixedMeal(id){ S.fixedMeals=S.fixedMeals.filter(m=>m.id!==id); ls("fixedMeals",S.fixedMeals); render(); }
-function saveSettings(){
-  if(S.settingsDraft.geminiKey) ls("geminiKey",S.settingsDraft.geminiKey);
-  S.showSettings=false; render();
+function removeFixedMeal(id){
+  setAndSync("fixedMeals",S.fixedMeals.filter(m=>m.id!==id));
 }
+
+function saveSettings(){
+  ls("geminiKey",S.settingsDraft.geminiKey);
+  S.scriptUrl=S.settingsDraft.scriptUrl.trim();
+  S.userName=S.settingsDraft.userName.trim();
+  ls("scriptUrl",S.scriptUrl);
+  ls("userName",S.userName);
+  S.showSettings=false;
+  if(S.scriptUrl){ fetchSync(); startPolling(); }
+  render();
+}
+
 function toggleDay(day){ S.expandedDay=S.expandedDay===day?null:day; render(); }
 
-async function callGemini(key, prompt){
+// ── Generate Plan ─────────────────────────────────────────────────────────────
+async function callGemini(key,prompt){
   const res=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key="+key,{
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.7,maxOutputTokens:65536}})
   });
-  if(!res.ok){ const t=await res.text(); throw new Error("API error "+res.status+": "+t.slice(0,200)); }
+  if(!res.ok){const t=await res.text();throw new Error("API error "+res.status+": "+t.slice(0,200));}
   const data=await res.json();
   const finishReason=data.candidates?.[0]?.finishReason;
   const text=data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if(!text) throw new Error("No text in response: "+JSON.stringify(data).slice(0,200));
-  if(finishReason && finishReason!=="STOP") throw new Error("Generation stopped early: "+finishReason);
+  if(!text)throw new Error("No text in response: "+JSON.stringify(data).slice(0,200));
+  if(finishReason&&finishReason!=="STOP")throw new Error("Generation stopped: "+finishReason);
   return text;
 }
 
 async function generatePlan(){
   const key=geminiKey();
-  if(!key){ S.generateError="No Gemini API key — tap ⚙ Settings to add one."; render(); return; }
-  S.loading=true; S.generateError=""; S.mealPlan=null; ls("mealPlan", null); render();
+  if(!key){S.generateError="No Gemini API key — tap ⚙ Settings.";render();return;}
+  S.loading=true; S.generateError=""; S.mealPlan=null; ls("mealPlan",null); render();
 
   const inv=S.inventory.length
-    ? S.inventory.map(i=>i.name+(i.qty?" ("+i.qty+")":"")+" ["+i.category+"]").join(", ")
-    : "No specific items — assume a well-stocked kitchen";
-  const diet=S.dietPrefs.length
-    ? S.dietPrefs.map(p=>DIET_OPTIONS.find(o=>o.id===p)?.label).join(", ")
-    : "No restrictions";
+    ?S.inventory.map(i=>i.name+(i.qty?" ("+i.qty+")":"")+" ["+i.category+"]").join(", ")
+    :"No specific items — assume a well-stocked kitchen";
+  const diet=S.dietPrefs.length?S.dietPrefs.map(p=>DIET_OPTIONS.find(o=>o.id===p)?.label).join(", "):"No restrictions";
   const household=S.household.map(m=>m.name+" ("+m.type+(m.age?", age "+m.age:"")+")").join(", ");
-  const fixed=S.fixedMeals.length
-    ? S.fixedMeals.map(m=>"- "+m.day+" "+m.mealType+": "+m.description).join("\n")
-    : "None";
+  const fixed=S.fixedMeals.length?S.fixedMeals.map(m=>"- "+m.day+" "+m.mealType+": "+m.description).join("\n"):"None";
   const avoid=S.avoid.trim()||"none";
 
   const context="PANTRY: "+inv+"\nDIET: "+diet+"\nAVOID: "+avoid
@@ -335,53 +400,55 @@ async function generatePlan(){
   const makePrompt=(days)=>
     "You are a meal planner. Generate meals for: "+days.join(", ")+".\n\n"
     +context+"\n\n"
-    +"Rules: ingredients marked * are NOT in pantry. Max 5 ingredients per meal. 2-3 short recipe steps.\n"
+    +"Rules: mark ingredients with * if NOT in pantry. Max 5 ingredients per meal. 2-3 short recipe steps.\n"
     +"Respect fixed meals exactly. Avoid listed ingredients.\n\n"
     +"Respond ONLY in this JSON, no markdown:\n"
-    +'{"days":[{"day":"'+days[0]+'","meals":'+jsonFormat+'}]}\n'
+    +'{"days":[{"day":"'+days[0]+'","meals":'+jsonFormat+'}],"shopping_list":["item"]}\n'
     +"Include all days: "+days.join(", ");
 
   try{
-    const [res1, res2] = await Promise.all([
-      callGemini(key, makePrompt(["Monday","Tuesday","Wednesday","Thursday"])),
-      callGemini(key, makePrompt(["Friday","Saturday","Sunday"])),
+    const [res1,res2]=await Promise.all([
+      callGemini(key,makePrompt(["Monday","Tuesday","Wednesday","Thursday"])),
+      callGemini(key,makePrompt(["Friday","Saturday","Sunday"])),
     ]);
-
-    const parse=(text)=>{
-      const clean=text.replace(/```json|```/g,"").trim();
-      return JSON.parse(clean);
-    };
-
-    const part1=parse(res1);
-    const part2=parse(res2);
-
-    // Collect all shopping items and merge days
-    const allDays=[...part1.days, ...part2.days];
-    const allShopping=[...(part1.shopping_list||[]), ...(part2.shopping_list||[])];
-    const uniqueShopping=[...new Set(allShopping)];
-
-    // Ensure days are in correct order
+    const parse=(text)=>JSON.parse(text.replace(/```json|```/g,"").trim());
+    const p1=parse(res1), p2=parse(res2);
+    const allDays=[...p1.days,...p2.days];
     const dayOrder=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
     allDays.sort((a,b)=>dayOrder.indexOf(a.day)-dayOrder.indexOf(b.day));
-
-    S.mealPlan={days:allDays, shopping_list:uniqueShopping};
-    ls("mealPlan", S.mealPlan);
+    const shopping=[...new Set([...(p1.shopping_list||[]),...(p2.shopping_list||[])])];
+    S.mealPlan={days:allDays,shopping_list:shopping};
+    setAndSync("mealPlan",S.mealPlan);
     S.step=3;
-  }catch(e){ S.generateError="Error: "+e.message; }
+  }catch(e){S.generateError="Error: "+e.message;}
   S.loading=false; render();
 }
 
-// Render helpers
-function dots(){ return '<div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>'; }
-function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+// ── Render ────────────────────────────────────────────────────────────────────
+function dots(){return '<div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>';}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+
+function renderError(){
+  if(!S.generateError)return "";
+  return '<div class="error-bar"><span>⚠️ '+esc(S.generateError)+'</span>'
+    +'<button onclick="S.generateError=\'\';render()">×</button></div>';
+}
 
 function renderHeader(){
-  const hasKey=!!geminiKey();
+  const configured=!!S.scriptUrl;
+  const dotCls=!configured?"":S.syncing?"syncing":S.syncError?"err":"live";
+  const syncMsg=!configured?"Not synced — add Script URL in Settings"
+    :S.syncing?"Syncing…"
+    :S.syncError?S.syncError
+    :S.lastSynced?"Synced "+fmtTime(S.lastSynced)+(S.userName?" by "+S.userName:"")
+    :"Connected";
   return '<div class="header">'
     +'<div class="header-row"><h1>Pantry <em>Planner</em></h1>'
-    +'<button class="settings-btn" onclick="S.showSettings=true;S.settingsDraft={geminiKey:ls(\'geminiKey\')||\'\'};render()">⚙ Settings</button></div>'
-    +'<div class="header-meta">'+(hasKey?'<span style="color:#6bcf8a">● API key set</span>':'<span style="color:#f08080">● No API key — tap Settings</span>')+'</div>'
-    +'</div>';
+    +'<button class="settings-btn" onclick="S.showSettings=true;S.settingsDraft={geminiKey:ls(\'geminiKey\')||\'\',scriptUrl:S.scriptUrl,userName:S.userName};render()">⚙ Settings</button></div>'
+    +'<div class="header-meta">'
+    +'<span class="sdot '+dotCls+'"></span><span style="color:#b8a898">'+syncMsg+'</span>'
+    +(configured&&!S.syncing?'<span style="cursor:pointer;color:#b8a898" onclick="fetchSync()">↻</span>':"")
+    +'</div></div>';
 }
 
 function renderStepper(){
@@ -402,11 +469,10 @@ function renderInventory(){
       +'<button onclick="removeItem('+item.id+')">×</button></div>').join("")
     +'</div></div>'
   ).join("");
-
   return '<div class="content">'
     +'<div class="toolbar"><h2 class="section-title">What\'s in your pantry?</h2>'
     +(S.inventory.length?'<span class="inv-count">'+S.inventory.length+' items</span>':"")+'</div>'
-    +'<p class="section-desc">Add what you have on hand.</p>'
+    +'<p class="section-desc">Add what you have on hand. Changes sync automatically.</p>'
     +'<div class="card">'
     +'<div class="add-row">'
     +'<input class="fi name" placeholder="Item name" value="'+esc(S.newItem.name)+'" oninput="S.newItem.name=this.value" onkeydown="if(event.key===\'Enter\')addItem()">'
@@ -427,7 +493,6 @@ function renderPreferences(){
     return '<div class="diet-toggle'+(active?" active":"")+'" onclick="togglePref(\''+o.id+'\')">'
       +'<span>'+o.emoji+'</span><span>'+o.label+'</span>'+(active?'<span style="margin-left:auto">✓</span>':"")+'</div>';
   }).join("");
-
   const membersHtml=S.household.map(m=>
     '<div class="member-row">'
     +'<input class="mname" placeholder="Name" value="'+esc(m.name)+'" oninput="updateMember('+m.id+',\'name\',this.value)">'
@@ -438,14 +503,12 @@ function renderPreferences(){
     +'<button class="rm-btn" onclick="removeMember('+m.id+')">×</button>'
     +'</div>'
   ).join("");
-
   const fixedHtml=S.fixedMeals.map(m=>
     '<div class="fixed-item"><div>'
     +'<span class="fixed-day">'+m.day+' · '+m.mealType+'</span>'
     +'<span style="font-size:14px">'+esc(m.description)+'</span>'
     +'</div><button class="rm-btn" onclick="removeFixedMeal('+m.id+')">×</button></div>'
   ).join("");
-
   const fixedForm=S.showFixedForm?'<div class="fixed-form">'
     +'<div class="fixed-form-row">'
     +'<select onchange="S.newFixed.day=this.value">'+DAYS.map(d=>'<option'+(d===S.newFixed.day?" selected":"")+'>'+d+'</option>').join("")+'</select>'
@@ -456,26 +519,23 @@ function renderPreferences(){
     +'<button class="btn btn-secondary" style="font-size:13px;padding:6px 14px" onclick="S.showFixedForm=false;render()">Cancel</button>'
     +'<button class="btn btn-primary" style="font-size:13px;padding:6px 14px" onclick="addFixedMeal()">Add</button>'
     +'</div></div>':"";
-
-  const noKey=!geminiKey()?'<div class="warn-banner">⚠️ No Gemini API key set — tap ⚙ Settings before generating.</div>':"";
-  const err=S.generateError?'<div class="error-banner">⚠️ '+esc(S.generateError)+'</div>':"";
-
+  const noKey=!geminiKey()?'<div class="warn-banner">⚠️ No Gemini API key — tap ⚙ Settings before generating.</div>':"";
   return '<div class="content">'
     +'<h2 class="section-title">Preferences</h2>'
-    +'<p class="section-desc">Saved locally on this device.</p>'
+    +'<p class="section-desc">Changes sync to both devices automatically.</p>'
     +'<div class="pref-section"><div class="sub-label">Dietary</div><div class="diet-grid">'+dietHtml+'</div></div>'
     +'<div class="pref-section"><div class="sub-label">Household Members</div>'
     +membersHtml
     +'<button class="btn btn-secondary" style="font-size:13px;padding:6px 14px;margin-top:4px" onclick="addMember()">+ Add person</button></div>'
     +'<div class="pref-section"><div class="sub-label">Ingredients to Avoid</div>'
     +'<div class="sub-desc" style="margin-bottom:8px">Allergies or dislikes, comma separated</div>'
-    +'<input class="fi" style="width:100%" placeholder="e.g. banana, avocado" value="'+esc(S.avoid)+'" oninput="S.avoid=this.value;ls(\'avoid\',S.avoid)"></div>'
+    +'<input class="fi" style="width:100%" placeholder="e.g. banana, avocado" value="'+esc(S.avoid)+'" oninput="S.avoid=this.value" onchange="setAndSync(\'avoid\',S.avoid)"></div>'
     +'<div class="pref-section">'
     +'<div class="section-hdr"><div><div class="sub-label">Fixed Meals</div><div class="sub-desc">Always the same on a given day</div></div>'
     +'<button class="btn btn-secondary" style="font-size:13px;padding:6px 12px" onclick="S.showFixedForm=!S.showFixedForm;render()">+ Add</button></div>'
     +(S.fixedMeals.length===0&&!S.showFixedForm?'<div style="font-size:13px;color:var(--muted);font-style:italic;padding:8px 0">No fixed meals yet</div>':"")
     +fixedHtml+fixedForm+'</div>'
-    +noKey+err
+    +noKey
     +'<div class="nav-row desktop-nav">'
     +'<button class="btn btn-secondary" onclick="S.step=1;render()">← Back</button>'
     +'<button class="btn btn-primary btn-lg" onclick="generatePlan()" '+(S.loading?"disabled":"")+'>'+( S.loading?dots()+" Generating…":"✨ Generate Meal Plan")+'</button>'
@@ -491,7 +551,6 @@ function renderMealPlan(){
   const kids=S.household.filter(m=>["child","toddler","infant"].includes(m.type)).length;
   const meta=(S.dietPrefs.length?S.dietPrefs.map(p=>DIET_OPTIONS.find(o=>o.id===p)?.label).join(", ")+" · ":"")
     +S.household.length+" people · "+kids+" kids";
-
   const daysHtml=S.mealPlan.days.map(dayData=>{
     const open=S.expandedDay===dayData.day;
     const previews=["breakfast","lunch","dinner"].map(m=>'<span class="meal-badge">'+esc(dayData.meals[m]?.name||"")+'</span>').join("");
@@ -517,12 +576,10 @@ function renderMealPlan(){
       +'<div class="day-meals'+(open?" open":"")+'">'+mealsHtml+'</div>'
       +'</div>';
   }).join("");
-
   const shopping=S.mealPlan.shopping_list?.length
     ?'<div class="shopping-card"><div class="shopping-title">🛒 Shopping List</div><div class="shopping-grid">'
       +S.mealPlan.shopping_list.map(i=>'<span class="shop-item">'+esc(i)+'</span>').join("")
       +'</div></div>':"";
-
   return '<div class="content">'
     +'<div class="plan-header"><div><h2 class="section-title">Your Week\'s Meal Plan</h2>'
     +'<p class="section-desc">'+meta+' · <span style="color:#9a5a10">🛒 = needs shopping</span></p></div>'
@@ -542,11 +599,21 @@ function renderSettings(){
   return '<div class="overlay" onclick="if(event.target===this){S.showSettings=false;render()}">'
     +'<div class="settings-panel">'
     +'<div class="settings-title">⚙️ Settings</div>'
-    +'<p class="settings-desc">Your Gemini API key is stored only in this browser — never on GitHub or any server.<br><br>'
-    +'<a href="https://aistudio.google.com" target="_blank" style="color:var(--accent)">→ Get a free key at aistudio.google.com</a></p>'
+
+    +'<div class="settings-section">AI</div>'
     +'<div class="field"><label>Gemini API Key</label>'
     +'<input type="password" placeholder="AIza..." value="'+esc(S.settingsDraft.geminiKey)+'" oninput="S.settingsDraft.geminiKey=this.value.trim();render()">'
-    +'<div style="font-size:12px;color:var(--muted);margin-top:5px">Tip: restrict this key to your GitHub Pages domain in AI Studio for extra security.</div></div>'
+    +'<div class="field-note">Stored only in this browser. Get a free key at <a href="https://aistudio.google.com" target="_blank" style="color:var(--accent)">aistudio.google.com</a></div></div>'
+
+    +'<div class="settings-section">Sync</div>'
+    +'<p class="settings-desc" style="margin-bottom:16px">Connect a Google Sheet to sync everything between you and your wife. <a href="https://script.google.com" target="_blank" style="color:var(--accent)">Set up in Google Apps Script →</a></p>'
+    +'<div class="field"><label>Your Name</label>'
+    +'<input placeholder="e.g. Ben" value="'+esc(S.settingsDraft.userName)+'" oninput="S.settingsDraft.userName=this.value">'
+    +'<div class="field-note">Shows in sync status so you know who last updated.</div></div>'
+    +'<div class="field"><label>Apps Script Web App URL</label>'
+    +'<input placeholder="https://script.google.com/macros/s/..." value="'+esc(S.settingsDraft.scriptUrl)+'" oninput="S.settingsDraft.scriptUrl=this.value.trim()">'
+    +'<div class="field-note">Paste the deployment URL after setting up the Apps Script.</div></div>'
+
     +'<div class="settings-actions">'
     +'<button class="btn btn-secondary" onclick="S.showSettings=false;render()">Cancel</button>'
     +'<button class="btn btn-primary" onclick="saveSettings()" '+(S.settingsDraft.geminiKey?"":"disabled")+'>Save</button>'
@@ -554,7 +621,7 @@ function renderSettings(){
 }
 
 function render(){
-  let html=renderHeader()+renderStepper();
+  let html=renderHeader()+renderStepper()+renderError();
   if(S.loading){
     html+='<div class="loading-wrap"><div class="ltitle">Crafting your week…</div><p>Planning 7 days of meals around your pantry.</p>'+dots()+'</div>';
   } else if(S.step===1){
@@ -570,6 +637,7 @@ function render(){
 
 loadAll();
 render();
+if(S.scriptUrl){ fetchSync(); startPolling(); }
 setInterval(render,30000);
 </script>
 </body>
