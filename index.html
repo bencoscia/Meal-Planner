@@ -406,13 +406,24 @@ async function generatePlan(){
     +'{"days":[{"day":"'+days[0]+'","meals":'+jsonFormat+'}],"shopping_list":["item"]}\n'
     +"Include all days: "+days.join(", ");
 
+  function cleanJson(text){
+    let s=text.replace(/```json|```/g,"").trim();
+    // Extract first JSON object if there's surrounding text
+    const start=s.indexOf('{'), end=s.lastIndexOf('}');
+    if(start!==-1&&end!==-1) s=s.slice(start,end+1);
+    // Fix common Gemini issues: trailing commas before } or ]
+    s=s.replace(/,\s*([}\]])/g,'$1');
+    // Fix unescaped newlines inside strings
+    s=s.replace(/"([^"]*?)\n([^"]*?)"/g,(m,a,b)=>'"'+a+'\\n'+b+'"');
+    return JSON.parse(s);
+  }
+
   try{
     const [res1,res2]=await Promise.all([
       callGemini(key,makePrompt(["Monday","Tuesday","Wednesday","Thursday"])),
       callGemini(key,makePrompt(["Friday","Saturday","Sunday"])),
     ]);
-    const parse=(text)=>JSON.parse(text.replace(/```json|```/g,"").trim());
-    const p1=parse(res1), p2=parse(res2);
+    const p1=cleanJson(res1), p2=cleanJson(res2);
     const allDays=[...p1.days,...p2.days];
     const dayOrder=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
     allDays.sort((a,b)=>dayOrder.indexOf(a.day)-dayOrder.indexOf(b.day));
