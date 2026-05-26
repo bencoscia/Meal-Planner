@@ -562,7 +562,7 @@ function renderHeader(){
     :"Connected";
   return '<div class="header">'
     +'<div class="header-row"><h1>Pantry <em>Planner</em></h1>'
-    +'<button class="settings-btn" onclick="S.showSettings=true;S.settingsDraft={geminiKey:ls(\'geminiKey\')||\'\',,scriptUrl:S.scriptUrl,userName:S.userName};render()">⚙ Settings</button></div>'
+    +'<button class="settings-btn" onclick="S.showSettings=true;S.settingsDraft={geminiKey:ls(\'geminiKey\')||\'\'  ,scriptUrl:S.scriptUrl,userName:S.userName,promptWeek:S.promptWeek,promptDay:S.promptDay};render()">⚙ Settings</button></div>'
     +'<div class="header-meta">'
     +'<span class="sdot '+dotCls+'"></span><span style="color:#b8a898">'+syncMsg+'</span>'
     +(configured&&!S.syncing?'<span style="cursor:pointer;color:#b8a898" onclick="fetchSync()">↻</span>':"")
@@ -747,7 +747,6 @@ function renderMealPlan(){
 
 function renderSettings(){
   if(!S.showSettings)return "";
-  try{
   return '<div class="overlay" onclick="if(event.target===this){S.showSettings=false;render()}">'
     +'<div class="settings-panel">'
     +'<div class="settings-title">⚙️ Settings</div>'
@@ -780,15 +779,6 @@ function renderSettings(){
     +'<button class="btn btn-secondary" onclick="S.showSettings=false;render()">Cancel</button>'
     +'<button class="btn btn-primary" onclick="saveSettings()" '+(S.settingsDraft.geminiKey?"":"disabled")+'>Save</button>'
     +'</div></div></div>';
-  }catch(e){
-    return '<div class="overlay" onclick="S.showSettings=false;render()">'
-      +'<div class="settings-panel">'
-      +'<div class="settings-title">⚙️ Settings</div>'
-      +'<div class="error-bar"><span>Settings error: '+e.message+'</span>'
-      +'<button onclick="S.showSettings=false;render()">×</button></div>'
-      +'<div class="settings-actions"><button class="btn btn-secondary" onclick="S.showSettings=false;render()">Close</button></div>'
-      +'</div></div>';
-  }
 }
 
 function render(){
