@@ -411,10 +411,12 @@ async function generatePlan(){
     // Extract first JSON object if there's surrounding text
     const start=s.indexOf('{'), end=s.lastIndexOf('}');
     if(start!==-1&&end!==-1) s=s.slice(start,end+1);
-    // Fix common Gemini issues: trailing commas before } or ]
+    // Fix literal \n and \t sequences outside of already-escaped contexts
+    s=s.replace(/\\n/g,' ').replace(/\\t/g,' ');
+    // Fix trailing commas before } or ]
     s=s.replace(/,\s*([}\]])/g,'$1');
-    // Fix unescaped newlines inside strings
-    s=s.replace(/"([^"]*?)\n([^"]*?)"/g,(m,a,b)=>'"'+a+'\\n'+b+'"');
+    // Remove actual newlines and tabs inside the JSON (between tokens)
+    s=s.replace(/[\t\r]/g,' ');
     return JSON.parse(s);
   }
 
