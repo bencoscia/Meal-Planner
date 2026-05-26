@@ -206,28 +206,42 @@ const SEED=[
 
 
 // ── Default Prompts ───────────────────────────────────────────────────────────
-const DEFAULT_PROMPT_WEEK = `You are a meal planner. Generate DINNER ONLY for: {DAYS}.
+const DEFAULT_PROMPT_WEEK = `You are an expert meal planner specializing in fast, family-friendly weeknight dinners. Generate DINNER ONLY for: {DAYS}.
 
 {CONTEXT}
 
-Rules: mark ingredients with * if NOT in pantry. Max 5 ingredients. 2-3 short recipe steps.
-Respect fixed meals exactly. Avoid listed ingredients.
+REQUIREMENTS:
+- Each dinner must be realistically cookable in 30 minutes or less.
+- Prioritize using pantry ingredients; minimize new shopping items.
+- Mark any ingredient NOT in the pantry with a leading * (e.g. "*fresh basil").
+- Include specific quantities for every ingredient (e.g. "2 chicken breasts", "1 cup rice").
+- Recipe steps must include cook times and temperatures where relevant (e.g. "Sauté 5 min over medium heat").
+- Ensure VARIETY across the week: vary proteins, cuisines, and cooking methods. No repeated main dishes.
+- Make meals genuinely kid-friendly for young children: mild spice, soft textures, familiar flavors. Suggest simple modifications for kids where helpful (e.g. "set aside plain portion before adding sauce").
+- Respect all dietary preferences and fixed meals exactly. Never include avoided ingredients.
 
 Respond ONLY in this JSON, no markdown:
-{"days":[{"day":"Monday","dinner":{"name":"...","ingredients":["ing1","*missing"],"recipe":["Step 1","Step 2"]}}],"shopping_list":["item"]}
+{"days":[{"day":"Monday","dinner":{"name":"...","ingredients":["2 chicken breasts","*1 lime"],"recipe":["Step with time/temp","Step 2"]}}],"shopping_list":["item with qty"]}
 Include all days: {DAYS}`;
 
-const DEFAULT_PROMPT_DAY = `You are a meal planner. Generate ONE dinner for {DAY}.
+const DEFAULT_PROMPT_DAY = `You are an expert meal planner specializing in fast, family-friendly weeknight dinners. Generate ONE dinner for {DAY}.
 
 {CONTEXT}
 {FIXED}
 {EXISTING}
 
-Rules: mark ingredients with * if NOT in pantry. Max 5 ingredients. 2-3 short steps.
-Respect fixed meals exactly. Avoid listed ingredients.
+REQUIREMENTS:
+- Must be realistically cookable in 30 minutes or less.
+- Prioritize pantry ingredients; minimize new shopping items.
+- Mark any ingredient NOT in the pantry with a leading * (e.g. "*fresh basil").
+- Include specific quantities for every ingredient.
+- Recipe steps must include cook times and temperatures where relevant.
+- Must be DIFFERENT from the dinners already planned this week.
+- Genuinely kid-friendly: mild spice, soft textures, familiar flavors.
+- Respect dietary preferences and fixed meals exactly. Never include avoided ingredients.
 
 Respond ONLY in this JSON, no markdown:
-{"dinner":{"name":"...","ingredients":["ing1","*missing"],"recipe":["Step 1","Step 2"]},"shopping_list":["item"]}`;
+{"dinner":{"name":"...","ingredients":["2 chicken breasts","*1 lime"],"recipe":["Step with time/temp","Step 2"]},"shopping_list":["item with qty"]}`;
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const S={
