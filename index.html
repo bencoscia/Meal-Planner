@@ -218,6 +218,8 @@ const S={
   avoid:"banana, avocado",
   fixedMeals:[{id:1,day:"Tuesday",mealType:"dinner",description:"Salmon with white rice and veggies"}],
   showFixedForm:false, newFixed:{day:"Monday",mealType:"dinner",description:""},
+  quickMeals:{breakfast:["Oatmeal","Greek yogurt + fruit","Eggs on toast"],lunch:["Leftover rice bowl","Tuna sandwich","Soup + bread"]},
+  newQuick:{breakfast:"",lunch:""},
   mealPlan:null, loading:false, generateError:"", expandedDay:null,
   settingsDraft:{geminiKey:"",scriptUrl:"",userName:""},
   // Sync state
@@ -231,7 +233,7 @@ function ls(k,v){
   try{if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,JSON.stringify(v));}catch(e){}
 }
 
-const SYNC_KEYS=["inventory","dietPrefs","household","avoid","fixedMeals","mealPlan"];
+const SYNC_KEYS=["inventory","dietPrefs","household","avoid","fixedMeals","mealPlan","quickMeals"];
 
 function loadAll(){
   S.inventory   = ls("inventory") || SEED;
@@ -240,6 +242,7 @@ function loadAll(){
   S.avoid       = ls("avoid") ?? "banana, avocado";
   S.fixedMeals  = ls("fixedMeals") || S.fixedMeals;
   S.mealPlan    = ls("mealPlan") || null;
+  S.quickMeals  = ls("quickMeals") || S.quickMeals;
   S.scriptUrl   = ls("scriptUrl") || "";
   S.userName    = ls("userName") || "";
   S.settingsDraft = {geminiKey:ls("geminiKey")||"", scriptUrl:S.scriptUrl, userName:S.userName};
@@ -347,6 +350,17 @@ function removeFixedMeal(id){
   setAndSync("fixedMeals",S.fixedMeals.filter(m=>m.id!==id));
 }
 
+function addQuickMeal(type){
+  const val=S.newQuick[type].trim(); if(!val)return;
+  const updated={...S.quickMeals,[type]:[...S.quickMeals[type],val]};
+  S.newQuick[type]="";
+  setAndSync("quickMeals",updated);
+}
+function removeQuickMeal(type,idx){
+  const updated={...S.quickMeals,[type]:S.quickMeals[type].filter((_,i)=>i!==idx)};
+  setAndSync("quickMeals",updated);
+}
+
 function saveSettings(){
   ls("geminiKey",S.settingsDraft.geminiKey);
   S.scriptUrl=S.settingsDraft.scriptUrl.trim();
@@ -398,12 +412,12 @@ async function generatePlan(){
     +'"dinner":{"name":"...","ingredients":["ing1"],"recipe":["Step 1","Step 2"]}}';
 
   const makePrompt=(days)=>
-    "You are a meal planner. Generate meals for: "+days.join(", ")+".\n\n"
+    "You are a meal planner. Generate DINNER ONLY for: "+days.join(", ")+".\n\n"
     +context+"\n\n"
-    +"Rules: mark ingredients with * if NOT in pantry. Max 5 ingredients per meal. 2-3 short recipe steps.\n"
+    +"Rules: mark ingredients with * if NOT in pantry. Max 5 ingredients. 2-3 short recipe steps.\n"
     +"Respect fixed meals exactly. Avoid listed ingredients.\n\n"
     +"Respond ONLY in this JSON, no markdown:\n"
-    +'{"days":[{"day":"'+days[0]+'","meals":'+jsonFormat+'}],"shopping_list":["item"]}\n'
+    +'{"days":[{"day":"'+days[0]+'","dinner":{"name":"...","ingredients":["ing1","*missing"],"recipe":["Step 1","Step 2"]}}],"shopping_list":["item"]}\n'
     +"Include all days: "+days.join(", ");
 
   function cleanJson(text){
@@ -440,6 +454,10 @@ async function generatePlan(){
     const dayOrder=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
     allDays.sort((a,b)=>dayOrder.indexOf(a.day)-dayOrder.indexOf(b.day));
     const shopping=[...new Set([...(p1.shopping_list||[]),...(p2.shopping_list||[])])];
+    // Normalise: support both {dinner:{...}} and {meals:{dinner:{...}}} from Gemini
+    allDays.forEach(d=>{
+      if(!d.dinner && d.meals?.dinner) d.dinner=d.meals.dinner;
+    });
     S.mealPlan={days:allDays,shopping_list:shopping};
     setAndSync("mealPlan",S.mealPlan);
     S.step=3;
@@ -573,41 +591,64 @@ function renderPreferences(){
     +'</div>';
 }
 
+function renderMealCard(meal){
+  if(!meal)return '<div style="font-size:13px;color:var(--muted);font-style:italic">No meal planned</div>';
+  const ings=(meal.ingredients||[]).map(ing=>{
+    const need=ing.startsWith("*");
+    return '<span class="ing-tag'+(need?" need":"")+'">'+esc(need?"🛒 "+ing.slice(1).trim():ing)+'</span>';
+  }).join("");
+  const steps=(meal.recipe||[]).map((s,i)=>'<div class="recipe-step"><span class="step-num">'+(i+1)+'</span><span>'+esc(s)+'</span></div>').join("");
+  return '<div class="meal-name">'+esc(meal.name)+'</div>'
+    +'<div class="ingredients">'+ings+'</div>'
+    +(steps?'<div class="recipe-block"><div class="recipe-title">Recipe</div>'+steps+'</div>':"");
+}
+
+function renderQuickMeals(){
+  const types=["breakfast","lunch"];
+  const sections=types.map(type=>{
+    const items=S.quickMeals[type]||[];
+    const chips=items.length
+      ?items.map((item,i)=>'<div class="inv-chip"><span>'+esc(item)+'</span><button onclick="removeQuickMeal(\''+type+'\','+i+')">×</button></div>').join("")
+      :'<span style="font-size:13px;color:var(--muted);font-style:italic">No ideas yet</span>';
+    return '<div style="margin-bottom:20px">'
+      +'<div style="font-size:13px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:8px">'+type+'</div>'
+      +'<div class="inv-grid" style="margin-bottom:10px">'+chips+'</div>'
+      +'<div style="display:flex;gap:8px">'
+      +'<input class="fi" style="flex:1" placeholder="Add a '+type+' idea..." value="'+esc(S.newQuick[type]||"")+'" '
+      +'oninput="S.newQuick[\''+type+'\']=this.value" onkeydown="if(event.key===\'Enter\')addQuickMeal(\''+type+'\')">'
+      +'<button class="btn btn-primary" style="padding:8px 14px;font-size:13px" onclick="addQuickMeal(\''+type+'\')">+ Add</button>'
+      +'</div></div>';
+  }).join("");
+  return '<div class="card" style="margin-top:24px">'
+    +'<div style="font-family:\'Playfair Display\',serif;font-size:18px;margin-bottom:4px">Quick Meal Ideas</div>'
+    +'<div style="font-size:13px;color:var(--muted);margin-bottom:16px">Your go-to breakfasts and lunches. Synced with your household.</div>'
+    +sections+'</div>';
+}
+
 function renderMealPlan(){
   const kids=S.household.filter(m=>["child","toddler","infant"].includes(m.type)).length;
   const meta=(S.dietPrefs.length?S.dietPrefs.map(p=>DIET_OPTIONS.find(o=>o.id===p)?.label).join(", ")+" · ":"")
     +S.household.length+" people · "+kids+" kids";
   const daysHtml=S.mealPlan.days.map(dayData=>{
     const open=S.expandedDay===dayData.day;
-    const previews=["breakfast","lunch","dinner"].map(m=>'<span class="meal-badge">'+esc(dayData.meals[m]?.name||"")+'</span>').join("");
-    const mealsHtml=["breakfast","lunch","dinner"].map(mt=>{
-      const meal=dayData.meals[mt]; if(!meal)return "";
-      const ings=(meal.ingredients||[]).map(ing=>{
-        const need=ing.startsWith("*");
-        return '<span class="ing-tag'+(need?" need":"")+'">'+esc(need?"🛒 "+ing.slice(1).trim():ing)+'</span>';
-      }).join("");
-      const steps=(meal.recipe||[]).map((s,i)=>'<div class="recipe-step"><span class="step-num">'+(i+1)+'</span><span>'+esc(s)+'</span></div>').join("");
-      return '<div class="meal-row">'
-        +'<div class="meal-type">'+mt+'</div>'
-        +'<div class="meal-name">'+esc(meal.name)+'</div>'
-        +'<div class="ingredients">'+ings+'</div>'
-        +(steps?'<div class="recipe-block"><div class="recipe-title">Recipe</div>'+steps+'</div>':"")
-        +'</div>';
-    }).join("");
+    const dinner=dayData.dinner||(dayData.meals?.dinner);
     return '<div class="day-card">'
       +'<div class="day-header" onclick="toggleDay(\''+dayData.day+'\')">'
       +'<span class="day-name">'+dayData.day+'</span>'
-      +'<div style="display:flex;align-items:center"><div class="day-preview">'+previews+'</div>'
+      +'<div style="display:flex;align-items:center">'
+      +(dinner?'<span class="meal-badge">'+esc(dinner.name)+'</span>':"")
       +'<span class="chevron'+(open?" open":"")+'">▼</span></div></div>'
-      +'<div class="day-meals'+(open?" open":"")+'">'+mealsHtml+'</div>'
-      +'</div>';
+      +'<div class="day-meals'+(open?" open":"")+'"><div class="meal-row">'
+      +'<div class="meal-type">Dinner</div>'
+      +renderMealCard(dinner)
+      +'</div></div></div>';
   }).join("");
   const shopping=S.mealPlan.shopping_list?.length
     ?'<div class="shopping-card"><div class="shopping-title">🛒 Shopping List</div><div class="shopping-grid">'
       +S.mealPlan.shopping_list.map(i=>'<span class="shop-item">'+esc(i)+'</span>').join("")
       +'</div></div>':"";
   return '<div class="content">'
-    +'<div class="plan-header"><div><h2 class="section-title">Your Week\'s Meal Plan</h2>'
+    +'<div class="plan-header"><div><h2 class="section-title">This Week\'s Dinners</h2>'
     +'<p class="section-desc">'+meta+' · <span style="color:#9a5a10">🛒 = needs shopping</span></p></div>'
     +'<div class="desktop-nav" style="gap:10px">'
     +'<button class="btn btn-secondary" onclick="S.step=2;render()">← Adjust</button>'
@@ -617,7 +658,9 @@ function renderMealPlan(){
     +'<button class="btn btn-secondary" onclick="S.step=2;render()">← Adjust</button>'
     +'<button class="btn btn-primary" onclick="generatePlan()">↻ Regenerate</button>'
     +'</div>'
-    +daysHtml+shopping+'</div>';
+    +daysHtml+shopping
+    +renderQuickMeals()
+    +'</div>';
 }
 
 function renderSettings(){
