@@ -393,27 +393,21 @@ async function regenSingleDay(day){
     .map(d=>{const din=d.dinner||(d.meals?.dinner); return din?d.day+": "+din.name:null;})
     .filter(Boolean).join(", ");
 
-  const prompt="You are a meal planner. Generate ONE dinner for "+day+".
-
-"
-    +"PANTRY: "+inv+"
-DIET: "+diet+"
-AVOID: "+avoid
-    +"
-HOUSEHOLD: "+household+" (children under 5 need soft textures, mild flavors)"
-    +(fixed?"
-FIXED: This dinner must be: "+fixed.description:"")
-    +(existing?"
-ALREADY PLANNED THIS WEEK (do not repeat): "+existing:"")
-    +"
-
-Rules: mark ingredients with * if NOT in pantry. Max 5 ingredients. 2-3 short steps."
-    +"
-
-Respond ONLY in this JSON, no markdown:
-"
-    +'{"dinner":{"name":"...","ingredients":["ing1","*missing"],"recipe":["Step 1","Step 2"]},"shopping_list":["item"]}';
-
+  const promptParts=[
+    "You are a meal planner. Generate ONE dinner for "+day+".",
+    "PANTRY: "+inv,
+    "DIET: "+diet,
+    "AVOID: "+avoid,
+    "HOUSEHOLD: "+household+" (children under 5 need soft textures, mild flavors)",
+    fixed?"FIXED: This dinner must be: "+fixed.description:null,
+    existing?"ALREADY PLANNED THIS WEEK (do not repeat): "+existing:null,
+    "",
+    "Rules: mark ingredients with * if NOT in pantry. Max 5 ingredients. 2-3 short steps.",
+    "",
+    "Respond ONLY in this JSON, no markdown:",
+    '{"dinner":{"name":"...","ingredients":["ing1","*missing"],"recipe":["Step 1","Step 2"]},"shopping_list":["item"]}'
+  ];
+  const prompt=promptParts.filter(Boolean).join("\n");
   try{
     const text=await callGemini(key,prompt);
     const data=cleanJson(text);
@@ -698,7 +692,7 @@ function renderMealPlan(){
       +'<span class="day-name">'+dayData.day+'</span>'
       +'<div style="display:flex;align-items:center;gap:8px">'
       +(isRegen?'<span style="font-size:12px;color:var(--muted)">Regenerating…</span>'
-        :(dinner?'<span class="meal-badge">'+esc(dinner.name)+'</span>"':"'"))
+        :(dinner?'<span class="meal-badge">'+esc(dinner.name)+'</span>':"'"))
       +'<button style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:12px;cursor:pointer;color:var(--muted)" '
       +'onclick="event.stopPropagation();regenSingleDay(\''+dayData.day+'\')" '
       +(isRegen?'disabled ':'')+'>↻</button>'
@@ -707,6 +701,7 @@ function renderMealPlan(){
       +'<div class="meal-type">Dinner</div>'
       +renderMealCard(dinner)
       +'</div></div></div>';
+  }).join("");
   const shopping=S.mealPlan.shopping_list?.length
     ?'<div class="shopping-card"><div class="shopping-title">🛒 Shopping List</div><div class="shopping-grid">'
       +S.mealPlan.shopping_list.map(i=>'<span class="shop-item">'+esc(i)+'</span>').join("")
