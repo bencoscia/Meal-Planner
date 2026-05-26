@@ -220,7 +220,7 @@ const S={
   showFixedForm:false, newFixed:{day:"Monday",mealType:"dinner",description:""},
   quickMeals:{breakfast:["Oatmeal","Greek yogurt + fruit","Eggs on toast"],lunch:["Leftover rice bowl","Tuna sandwich","Soup + bread"]},
   newQuick:{breakfast:"",lunch:""},
-  mealPlan:null, loading:false, generateError:"", expandedDay:null,
+  mealPlan:null, loading:false, regenDay:null, generateError:"", expandedDay:null,
   settingsDraft:{geminiKey:"",scriptUrl:"",userName:""},
   // Sync state
   scriptUrl:"", userName:"",
@@ -373,6 +373,66 @@ function saveSettings(){
 }
 
 function toggleDay(day){ S.expandedDay=S.expandedDay===day?null:day; render(); }
+
+async function regenSingleDay(day){
+  const key=geminiKey();
+  if(!key){S.generateError="No Gemini API key — tap ⚙ Settings.";render();return;}
+  S.regenDay=day; S.generateError=""; render();
+
+  const inv=S.inventory.length
+    ?S.inventory.map(i=>i.name+(i.qty?" ("+i.qty+")":"")+" ["+i.category+"]").join(", ")
+    :"No specific items — assume a well-stocked kitchen";
+  const diet=S.dietPrefs.length?S.dietPrefs.map(p=>DIET_OPTIONS.find(o=>o.id===p)?.label).join(", "):"No restrictions";
+  const household=S.household.map(m=>m.name+" ("+m.type+(m.age?", age "+m.age:"")+")").join(", ");
+  const fixed=S.fixedMeals.find(m=>m.day===day&&m.mealType==="dinner");
+  const avoid=S.avoid.trim()||"none";
+
+  // Get existing dinners to avoid repeating them
+  const existing=(S.mealPlan?.days||[])
+    .filter(d=>d.day!==day)
+    .map(d=>{const din=d.dinner||(d.meals?.dinner); return din?d.day+": "+din.name:null;})
+    .filter(Boolean).join(", ");
+
+  const prompt="You are a meal planner. Generate ONE dinner for "+day+".
+
+"
+    +"PANTRY: "+inv+"
+DIET: "+diet+"
+AVOID: "+avoid
+    +"
+HOUSEHOLD: "+household+" (children under 5 need soft textures, mild flavors)"
+    +(fixed?"
+FIXED: This dinner must be: "+fixed.description:"")
+    +(existing?"
+ALREADY PLANNED THIS WEEK (do not repeat): "+existing:"")
+    +"
+
+Rules: mark ingredients with * if NOT in pantry. Max 5 ingredients. 2-3 short steps."
+    +"
+
+Respond ONLY in this JSON, no markdown:
+"
+    +'{"dinner":{"name":"...","ingredients":["ing1","*missing"],"recipe":["Step 1","Step 2"]},"shopping_list":["item"]}';
+
+  try{
+    const text=await callGemini(key,prompt);
+    const data=cleanJson(text);
+    const dinner=data.dinner;
+    if(!dinner)throw new Error("No dinner in response");
+    // Update just this day in the plan
+    const updatedDays=S.mealPlan.days.map(d=>{
+      if(d.day!==day)return d;
+      return {...d, dinner};
+    });
+    // Merge shopping lists
+    const newItems=(data.shopping_list||[]).filter(i=>!S.mealPlan.shopping_list?.includes(i));
+    const updatedPlan={...S.mealPlan, days:updatedDays, shopping_list:[...(S.mealPlan.shopping_list||[]),...newItems]};
+    S.mealPlan=updatedPlan;
+    setAndSync("mealPlan",updatedPlan);
+    S.expandedDay=day; // auto-expand to show the new meal
+  }catch(e){S.generateError="Error regenerating "+day+": "+e.message;}
+  S.regenDay=null; render();
+}
 
 // ── Generate Plan ─────────────────────────────────────────────────────────────
 async function callGemini(key,prompt){
@@ -632,17 +692,21 @@ function renderMealPlan(){
   const daysHtml=S.mealPlan.days.map(dayData=>{
     const open=S.expandedDay===dayData.day;
     const dinner=dayData.dinner||(dayData.meals?.dinner);
+    const isRegen=S.regenDay===dayData.day;
     return '<div class="day-card">'
       +'<div class="day-header" onclick="toggleDay(\''+dayData.day+'\')">'
       +'<span class="day-name">'+dayData.day+'</span>'
-      +'<div style="display:flex;align-items:center">'
-      +(dinner?'<span class="meal-badge">'+esc(dinner.name)+'</span>':"")
+      +'<div style="display:flex;align-items:center;gap:8px">'
+      +(isRegen?'<span style="font-size:12px;color:var(--muted)">Regenerating…</span>'
+        :(dinner?'<span class="meal-badge">'+esc(dinner.name)+'</span>"':"'"))
+      +'<button style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:12px;cursor:pointer;color:var(--muted)" '
+      +'onclick="event.stopPropagation();regenSingleDay(\''+dayData.day+'\')" '
+      +(isRegen?'disabled ':'')+'>↻</button>'
       +'<span class="chevron'+(open?" open":"")+'">▼</span></div></div>'
       +'<div class="day-meals'+(open?" open":"")+'"><div class="meal-row">'
       +'<div class="meal-type">Dinner</div>'
       +renderMealCard(dinner)
       +'</div></div></div>';
-  }).join("");
   const shopping=S.mealPlan.shopping_list?.length
     ?'<div class="shopping-card"><div class="shopping-title">🛒 Shopping List</div><div class="shopping-grid">'
       +S.mealPlan.shopping_list.map(i=>'<span class="shop-item">'+esc(i)+'</span>').join("")
