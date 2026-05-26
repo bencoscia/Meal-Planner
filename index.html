@@ -204,6 +204,31 @@ const SEED=[
   {id:41,name:"Cornstarch",qty:"",category:"Pantry"},
 ];
 
+
+// ── Default Prompts ───────────────────────────────────────────────────────────
+const DEFAULT_PROMPT_WEEK = `You are a meal planner. Generate DINNER ONLY for: {DAYS}.
+
+{CONTEXT}
+
+Rules: mark ingredients with * if NOT in pantry. Max 5 ingredients. 2-3 short recipe steps.
+Respect fixed meals exactly. Avoid listed ingredients.
+
+Respond ONLY in this JSON, no markdown:
+{"days":[{"day":"Monday","dinner":{"name":"...","ingredients":["ing1","*missing"],"recipe":["Step 1","Step 2"]}}],"shopping_list":["item"]}
+Include all days: {DAYS}`;
+
+const DEFAULT_PROMPT_DAY = `You are a meal planner. Generate ONE dinner for {DAY}.
+
+{CONTEXT}
+{FIXED}
+{EXISTING}
+
+Rules: mark ingredients with * if NOT in pantry. Max 5 ingredients. 2-3 short steps.
+Respect fixed meals exactly. Avoid listed ingredients.
+
+Respond ONLY in this JSON, no markdown:
+{"dinner":{"name":"...","ingredients":["ing1","*missing"],"recipe":["Step 1","Step 2"]},"shopping_list":["item"]}`;
+
 // ── State ─────────────────────────────────────────────────────────────────────
 const S={
   step:1, showSettings:false,
@@ -221,7 +246,7 @@ const S={
   quickMeals:{breakfast:["Oatmeal","Greek yogurt + fruit","Eggs on toast"],lunch:["Leftover rice bowl","Tuna sandwich","Soup + bread"]},
   newQuick:{breakfast:"",lunch:""},
   mealPlan:null, loading:false, regenDay:null, generateError:"", expandedDay:null,
-  settingsDraft:{geminiKey:"",scriptUrl:"",userName:""},
+  settingsDraft:{geminiKey:"",scriptUrl:"",userName:"",promptWeek:"",promptDay:""},
   // Sync state
   scriptUrl:"", userName:"",
   syncing:false, lastSynced:null, syncError:"",
@@ -233,7 +258,7 @@ function ls(k,v){
   try{if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,JSON.stringify(v));}catch(e){}
 }
 
-const SYNC_KEYS=["inventory","dietPrefs","household","avoid","fixedMeals","mealPlan","quickMeals"];
+const SYNC_KEYS=["inventory","dietPrefs","household","avoid","fixedMeals","mealPlan","quickMeals","promptWeek","promptDay"];
 
 function loadAll(){
   S.inventory   = ls("inventory") || SEED;
@@ -243,9 +268,11 @@ function loadAll(){
   S.fixedMeals  = ls("fixedMeals") || S.fixedMeals;
   S.mealPlan    = ls("mealPlan") || null;
   S.quickMeals  = ls("quickMeals") || S.quickMeals;
+  S.promptWeek  = ls("promptWeek") || DEFAULT_PROMPT_WEEK;
+  S.promptDay   = ls("promptDay") || DEFAULT_PROMPT_DAY;
   S.scriptUrl   = ls("scriptUrl") || "";
   S.userName    = ls("userName") || "";
-  S.settingsDraft = {geminiKey:ls("geminiKey")||"", scriptUrl:S.scriptUrl, userName:S.userName};
+  S.settingsDraft = {geminiKey:ls("geminiKey")||"", scriptUrl:S.scriptUrl, userName:S.userName, promptWeek:S.promptWeek, promptDay:S.promptDay};
   if(S.mealPlan) S.step=3;
 }
 
@@ -367,6 +394,10 @@ function saveSettings(){
   S.userName=S.settingsDraft.userName.trim();
   ls("scriptUrl",S.scriptUrl);
   ls("userName",S.userName);
+  S.promptWeek=S.settingsDraft.promptWeek||DEFAULT_PROMPT_WEEK;
+  S.promptDay=S.settingsDraft.promptDay||DEFAULT_PROMPT_DAY;
+  ls("promptWeek",S.promptWeek);
+  ls("promptDay",S.promptDay);
   S.showSettings=false;
   if(S.scriptUrl){ fetchSync(); startPolling(); }
   render();
@@ -393,21 +424,17 @@ async function regenSingleDay(day){
     .map(d=>{const din=d.dinner||(d.meals?.dinner); return din?d.day+": "+din.name:null;})
     .filter(Boolean).join(", ");
 
-  const promptParts=[
-    "You are a meal planner. Generate ONE dinner for "+day+".",
+  const ctxLines=[
     "PANTRY: "+inv,
     "DIET: "+diet,
     "AVOID: "+avoid,
     "HOUSEHOLD: "+household+" (children under 5 need soft textures, mild flavors)",
-    fixed?"FIXED: This dinner must be: "+fixed.description:null,
-    existing?"ALREADY PLANNED THIS WEEK (do not repeat): "+existing:null,
-    "",
-    "Rules: mark ingredients with * if NOT in pantry. Max 5 ingredients. 2-3 short steps.",
-    "",
-    "Respond ONLY in this JSON, no markdown:",
-    '{"dinner":{"name":"...","ingredients":["ing1","*missing"],"recipe":["Step 1","Step 2"]},"shopping_list":["item"]}'
-  ];
-  const prompt=promptParts.filter(Boolean).join("\n");
+  ].join("\n");
+  const prompt=(S.promptDay||DEFAULT_PROMPT_DAY)
+    .replace(/\{DAY\}/g, day)
+    .replace(/\{CONTEXT\}/g, ctxLines)
+    .replace(/\{FIXED\}/g, fixed?"FIXED: This dinner must be: "+fixed.description:"")
+    .replace(/\{EXISTING\}/g, existing?"ALREADY PLANNED THIS WEEK (do not repeat): "+existing:"");
   try{
     const text=await callGemini(key,prompt);
     const data=cleanJson(text);
@@ -457,22 +484,18 @@ async function generatePlan(){
   const fixed=S.fixedMeals.length?S.fixedMeals.map(m=>"- "+m.day+" "+m.mealType+": "+m.description).join("\n"):"None";
   const avoid=S.avoid.trim()||"none";
 
-  const context="PANTRY: "+inv+"\nDIET: "+diet+"\nAVOID: "+avoid
-    +"\nHOUSEHOLD: "+household+" (children under 5 need soft textures, mild flavors)"
-    +"\nFIXED MEALS:\n"+fixed;
-
   const jsonFormat='{"breakfast":{"name":"...","ingredients":["ing1","*missing"],"recipe":["Step 1","Step 2"]},'
     +'"lunch":{"name":"...","ingredients":["ing1"],"recipe":["Step 1","Step 2"]},'
     +'"dinner":{"name":"...","ingredients":["ing1"],"recipe":["Step 1","Step 2"]}}';
 
-  const makePrompt=(days)=>
-    "You are a meal planner. Generate DINNER ONLY for: "+days.join(", ")+".\n\n"
-    +context+"\n\n"
-    +"Rules: mark ingredients with * if NOT in pantry. Max 5 ingredients. 2-3 short recipe steps.\n"
-    +"Respect fixed meals exactly. Avoid listed ingredients.\n\n"
-    +"Respond ONLY in this JSON, no markdown:\n"
-    +'{"days":[{"day":"'+days[0]+'","dinner":{"name":"...","ingredients":["ing1","*missing"],"recipe":["Step 1","Step 2"]}}],"shopping_list":["item"]}\n'
-    +"Include all days: "+days.join(", ");
+  const makePrompt=(days)=>{
+    const ctx="PANTRY: "+inv+"\nDIET: "+diet+"\nAVOID: "+avoid
+      +"\nHOUSEHOLD: "+household+" (children under 5 need soft textures, mild flavors)"
+      +"\nFIXED MEALS:\n"+fixed;
+    return (S.promptWeek||DEFAULT_PROMPT_WEEK)
+      .replace(/\{DAYS\}/g, days.join(", "))
+      .replace(/\{CONTEXT\}/g, ctx);
+  };
 
   function cleanJson(text){
     let s=text.replace(/```json|```/g,"").trim();
@@ -539,7 +562,7 @@ function renderHeader(){
     :"Connected";
   return '<div class="header">'
     +'<div class="header-row"><h1>Pantry <em>Planner</em></h1>'
-    +'<button class="settings-btn" onclick="S.showSettings=true;S.settingsDraft={geminiKey:ls(\'geminiKey\')||\'\',scriptUrl:S.scriptUrl,userName:S.userName};render()">⚙ Settings</button></div>'
+    +'<button class="settings-btn" onclick="S.showSettings=true;S.settingsDraft={geminiKey:ls(\'geminiKey\')||\'\',,scriptUrl:S.scriptUrl,userName:S.userName};render()">⚙ Settings</button></div>'
     +'<div class="header-meta">'
     +'<span class="sdot '+dotCls+'"></span><span style="color:#b8a898">'+syncMsg+'</span>'
     +(configured&&!S.syncing?'<span style="cursor:pointer;color:#b8a898" onclick="fetchSync()">↻</span>':"")
@@ -724,6 +747,7 @@ function renderMealPlan(){
 
 function renderSettings(){
   if(!S.showSettings)return "";
+  try{
   return '<div class="overlay" onclick="if(event.target===this){S.showSettings=false;render()}">'
     +'<div class="settings-panel">'
     +'<div class="settings-title">⚙️ Settings</div>'
@@ -742,10 +766,29 @@ function renderSettings(){
     +'<input placeholder="https://script.google.com/macros/s/..." value="'+esc(S.settingsDraft.scriptUrl)+'" oninput="S.settingsDraft.scriptUrl=this.value.trim()">'
     +'<div class="field-note">Paste the deployment URL after setting up the Apps Script.</div></div>'
 
+    +'<div class="settings-section">Prompts</div>'
+    +'<p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5">Customize how the AI generates your meal plan. Use {DAYS}, {CONTEXT}, {DAY}, {FIXED}, {EXISTING} as placeholders. Changes sync to both devices.</p>'
+    +'<div class="field"><label>Full Week Prompt</label>'
+    +'<textarea style="width:100%;font-family:DM Sans,sans-serif;font-size:12px;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none;min-height:160px;resize:vertical;line-height:1.5" oninput="S.settingsDraft.promptWeek=this.value">'+esc(S.settingsDraft.promptWeek||DEFAULT_PROMPT_WEEK)+'</textarea>'
+    +'<div style="display:flex;justify-content:flex-end;margin-top:4px"><button style="font-size:11px;color:var(--accent);background:none;border:none;cursor:pointer" onclick="S.settingsDraft.promptWeek=DEFAULT_PROMPT_WEEK;render()">Reset to default</button></div>'
+    +'</div>'
+    +'<div class="field"><label>Single Day Prompt</label>'
+    +'<textarea style="width:100%;font-family:DM Sans,sans-serif;font-size:12px;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none;min-height:160px;resize:vertical;line-height:1.5" oninput="S.settingsDraft.promptDay=this.value">'+esc(S.settingsDraft.promptDay||DEFAULT_PROMPT_DAY)+'</textarea>'
+    +'<div style="display:flex;justify-content:flex-end;margin-top:4px"><button style="font-size:11px;color:var(--accent);background:none;border:none;cursor:pointer" onclick="S.settingsDraft.promptDay=DEFAULT_PROMPT_DAY;render()">Reset to default</button></div>'
+    +'</div>'
     +'<div class="settings-actions">'
     +'<button class="btn btn-secondary" onclick="S.showSettings=false;render()">Cancel</button>'
     +'<button class="btn btn-primary" onclick="saveSettings()" '+(S.settingsDraft.geminiKey?"":"disabled")+'>Save</button>'
     +'</div></div></div>';
+  }catch(e){
+    return '<div class="overlay" onclick="S.showSettings=false;render()">'
+      +'<div class="settings-panel">'
+      +'<div class="settings-title">⚙️ Settings</div>'
+      +'<div class="error-bar"><span>Settings error: '+e.message+'</span>'
+      +'<button onclick="S.showSettings=false;render()">×</button></div>'
+      +'<div class="settings-actions"><button class="btn btn-secondary" onclick="S.showSettings=false;render()">Close</button></div>'
+      +'</div></div>';
+  }
 }
 
 function render(){
