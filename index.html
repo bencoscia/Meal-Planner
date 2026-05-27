@@ -221,7 +221,7 @@ REQUIREMENTS:
 - Respect all dietary preferences and fixed meals exactly. Never include avoided ingredients.
 
 Respond ONLY in this JSON, no markdown:
-{"days":[{"day":"Monday","dinner":{"name":"...","ingredients":["2 chicken breasts","*1 lime"],"recipe":["Step with time/temp","Step 2"]}}],"shopping_list":["item with qty"]}
+{"days":[{"day":"Monday","dinner":{"name":"...","ingredients":["2 chicken breasts","*1 lime"],"recipe":["Step with time/temp","Step 2"],"nutrition":{"calories":450,"protein":38,"carbs":32,"fat":14,"servingSize":"1.5 cups","kidsServing":"3/4 cup"}}}],"shopping_list":["item with qty"]}
 Include all days: {DAYS}`;
 
 const DEFAULT_PROMPT_DAY = `You are an expert meal planner specializing in fast, family-friendly weeknight dinners. Generate ONE dinner for {DAY}.
@@ -243,16 +243,59 @@ REQUIREMENTS:
 Respond ONLY in this JSON, no markdown:
 {"dinner":{"name":"...","ingredients":["2 chicken breasts","*1 lime"],"recipe":["Step with time/temp","Step 2"]},"shopping_list":["item with qty"]}`;
 
+
+// ── Nutrition Helpers ─────────────────────────────────────────────────────────
+function toKg(w, unit){ return unit==="imperial" ? w*0.453592 : w; }
+function toCm(h, unit){ 
+  if(unit==="imperial"){
+    const parts=String(h).split("'");
+    const ft=parseFloat(parts[0])||0, inch=parseFloat(parts[1])||0;
+    return ft*30.48 + inch*2.54;
+  }
+  return parseFloat(h)||0;
+}
+
+function calcTDEE(member){
+  const age=parseFloat(member.age)||0;
+  const weightKg=toKg(parseFloat(member.weight)||0, member.unit||"imperial");
+  const heightCm=toCm(member.height||"", member.unit||"imperial");
+  const activityMultiplier={sedentary:1.2,light:1.375,moderate:1.55,active:1.725,very_active:1.9}[member.activity||"moderate"]||1.55;
+  
+  let bmr=0;
+  if(member.type==="adult"||member.type==="toddler"&&age>=2){
+    // Mifflin-St Jeor
+    const isMale=member.sex==="male";
+    bmr = isMale
+      ? 10*weightKg + 6.25*heightCm - 5*age + 5
+      : 10*weightKg + 6.25*heightCm - 5*age - 161;
+  } else {
+    // Simple estimate for young kids: ~1000 + 100 * age kcal/day
+    bmr = 1000 + 100*age;
+    return Math.round(bmr); // kids don't need goal adjustment
+  }
+  
+  let tdee = bmr * activityMultiplier;
+  const goalAdj={lose:-500,maintain:0,gain:300}[member.goal||"maintain"]||0;
+  return Math.round(tdee + goalAdj);
+}
+
+function householdNutritionSummary(){
+  return S.household.map(m=>{
+    const tdee=calcTDEE(m);
+    return m.name+" ("+m.type+(m.age?", age "+m.age:"")+", target: "+(tdee||"unknown")+" kcal/day)";
+  }).join("; ");
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 const S={
   step:1, showSettings:false,
   inventory:[], newItem:{name:"",qty:"",category:"Produce"},
   dietPrefs:[],
   household:[
-    {id:1,name:"Adult 1",type:"adult",age:""},
-    {id:2,name:"Adult 2",type:"adult",age:""},
-    {id:3,name:"Child 1",type:"child",age:"3"},
-    {id:4,name:"Child 2",type:"child",age:"1"},
+    {id:1,name:"Adult 1",type:"adult",age:"",sex:"male",height:"5'10",weight:"170",unit:"imperial",activity:"moderate",goal:"maintain"},
+    {id:2,name:"Adult 2",type:"adult",age:"",sex:"female",height:"5'5",weight:"140",unit:"imperial",activity:"moderate",goal:"maintain"},
+    {id:3,name:"Child 1",type:"child",age:"3",sex:"",height:"",weight:"",unit:"imperial",activity:"moderate",goal:"maintain"},
+    {id:4,name:"Child 2",type:"child",age:"1",sex:"",height:"",weight:"",unit:"imperial",activity:"moderate",goal:"maintain"},
   ],
   avoid:"banana, avocado",
   fixedMeals:[{id:1,day:"Tuesday",mealType:"dinner",description:"Salmon with white rice and veggies"}],
@@ -402,6 +445,16 @@ function removeQuickMeal(type,idx){
   setAndSync("quickMeals",updated);
 }
 
+function resetHousehold(){
+  const defaults=[
+    {id:1,name:"Adult 1",type:"adult",age:"",sex:"male",height:"5'10",weight:"170",unit:"imperial",activity:"moderate",goal:"maintain"},
+    {id:2,name:"Adult 2",type:"adult",age:"",sex:"female",height:"5'5",weight:"140",unit:"imperial",activity:"moderate",goal:"maintain"},
+    {id:3,name:"Child 1",type:"child",age:"3",sex:"",height:"",weight:"",unit:"imperial",activity:"moderate",goal:"maintain"},
+    {id:4,name:"Child 2",type:"child",age:"1",sex:"",height:"",weight:"",unit:"imperial",activity:"moderate",goal:"maintain"},
+  ];
+  setAndSync("household", defaults);
+}
+
 function saveSettings(){
   ls("geminiKey",S.settingsDraft.geminiKey);
   S.scriptUrl=S.settingsDraft.scriptUrl.trim();
@@ -443,6 +496,7 @@ async function regenSingleDay(day){
     "DIET: "+diet,
     "AVOID: "+avoid,
     "HOUSEHOLD: "+household+" (children under 5 need soft textures, mild flavors)",
+    "HOUSEHOLD NUTRITION TARGETS: "+householdNutritionSummary(),
   ].join("\n");
   const prompt=(S.promptDay||DEFAULT_PROMPT_DAY)
     .replace(/\{DAY\}/g, day)
@@ -505,6 +559,7 @@ async function generatePlan(){
   const makePrompt=(days)=>{
     const ctx="PANTRY: "+inv+"\nDIET: "+diet+"\nAVOID: "+avoid
       +"\nHOUSEHOLD: "+household+" (children under 5 need soft textures, mild flavors)"
+      +"\nHOUSEHOLD NUTRITION TARGETS: "+householdNutritionSummary()
       +"\nFIXED MEALS:\n"+fixed;
     return (S.promptWeek||DEFAULT_PROMPT_WEEK)
       .replace(/\{DAYS\}/g, days.join(", "))
@@ -630,11 +685,11 @@ function renderPreferences(){
   }).join("");
   const membersHtml=S.household.map(m=>
     '<div class="member-row">'
-    +'<input class="mname" placeholder="Name" value="'+esc(m.name)+'" oninput="updateMember('+m.id+',\'name\',this.value)">'
+    +'<input class="mname" placeholder="Name" value="'+esc(m.name)+'" oninput="S.household=S.household.map(h=>h.id==='+m.id+'?{...h,name:this.value}:h)" onchange="updateMember('+m.id+',\'name\',this.value)">'
     +'<select class="mtype" onchange="updateMember('+m.id+',\'type\',this.value)">'
     +['adult','child','toddler','infant'].map(t=>'<option'+(t===m.type?" selected":"")+'>'+t+'</option>').join("")
     +'</select>'
-    +'<input class="mage" placeholder="Age" value="'+esc(m.age)+'" oninput="updateMember('+m.id+',\'age\',this.value)">'
+    +'<input class="mage" placeholder="Age" value="'+esc(m.age)+'" oninput="S.household=S.household.map(h=>h.id==='+m.id+'?{...h,age:this.value}:h)" onchange="updateMember('+m.id+',\'age\',this.value)">'
     +'<button class="rm-btn" onclick="removeMember('+m.id+')">×</button>'
     +'</div>'
   ).join("");
@@ -689,7 +744,21 @@ function renderMealCard(meal){
     return '<span class="ing-tag'+(need?" need":"")+'">'+esc(need?"🛒 "+ing.slice(1).trim():ing)+'</span>';
   }).join("");
   const steps=(meal.recipe||[]).map((s,i)=>'<div class="recipe-step"><span class="step-num">'+(i+1)+'</span><span>'+esc(s)+'</span></div>').join("");
+  const n=meal.nutrition;
+  const nutritionHtml=n?'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center">'
+    +'<div style="background:#f0f7ff;border:1px solid #c0d8f0;border-radius:8px;padding:6px 12px;font-size:13px">'
+    +'<span style="font-weight:600;color:#2a5a8a">'+n.calories+'</span><span style="color:#6a8aaa;font-size:11px;margin-left:3px">kcal</span></div>'
+    +'<div style="background:#f0fff4;border:1px solid #b0dfc0;border-radius:8px;padding:6px 12px;font-size:13px">'
+    +'<span style="font-weight:600;color:#2a6a3a">'+n.protein+'g</span><span style="color:#6aaa7a;font-size:11px;margin-left:3px">protein</span></div>'
+    +'<div style="background:#fff8f0;border:1px solid #f0d0b0;border-radius:8px;padding:6px 12px;font-size:13px">'
+    +'<span style="font-weight:600;color:#8a4a10">'+n.carbs+'g</span><span style="color:#aa7a5a;font-size:11px;margin-left:3px">carbs</span></div>'
+    +'<div style="background:#fdf0f8;border:1px solid #e0b0d0;border-radius:8px;padding:6px 12px;font-size:13px">'
+    +'<span style="font-weight:600;color:#7a2a5a">'+n.fat+'g</span><span style="color:#aa6a8a;font-size:11px;margin-left:3px">fat</span></div>'
+    +(n.servingSize?'<div style="font-size:12px;color:var(--muted)">Adult: '+esc(n.servingSize)+(n.kidsServing?" · Kids: "+esc(n.kidsServing):"")+'</div>':"")
+    +'<div style="font-size:11px;color:#b8a898;width:100%">* Estimates ±20%. Not medical advice.</div>'
+    +'</div>':"";
   return '<div class="meal-name">'+esc(meal.name)+'</div>'
+    +nutritionHtml
     +'<div class="ingredients">'+ings+'</div>'
     +(steps?'<div class="recipe-block"><div class="recipe-title">Recipe</div>'+steps+'</div>':"");
 }
@@ -779,6 +848,12 @@ function renderSettings(){
     +'<input placeholder="https://script.google.com/macros/s/..." value="'+esc(S.settingsDraft.scriptUrl)+'" oninput="S.settingsDraft.scriptUrl=this.value.trim()">'
     +'<div class="field-note">Paste the deployment URL after setting up the Apps Script.</div></div>'
 
+    +'<div class="settings-section">Data</div>'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:8px">'
+    +'<div><div style="font-size:14px;font-weight:500">Reset household profiles</div>'
+    +'<div style="font-size:12px;color:var(--muted);margin-top:2px">Clears saved members and reloads defaults with all fields</div></div>'
+    +'<button class="btn btn-secondary" style="font-size:13px;padding:6px 14px;flex-shrink:0" onclick="resetHousehold();S.showSettings=false;render()">Reset</button>'
+    +'</div>'
     +'<div class="settings-section">Prompts</div>'
     +'<p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5">Customize how the AI generates your meal plan. Use {DAYS}, {CONTEXT}, {DAY}, {FIXED}, {EXISTING} as placeholders. Changes sync to both devices.</p>'
     +'<div class="field"><label>Full Week Prompt</label>'
@@ -796,6 +871,7 @@ function renderSettings(){
 }
 
 function render(){
+  const scrollY = window.scrollY;
   let html=renderHeader()+renderStepper()+renderError();
   if(S.loading){
     html+='<div class="loading-wrap"><div class="ltitle">Crafting your week…</div><p>Planning 7 days of meals around your pantry.</p>'+dots()+'</div>';
@@ -808,12 +884,28 @@ function render(){
   }
   html+=renderSettings();
   document.getElementById("app").innerHTML=html;
+  window.scrollTo(0, scrollY);
 }
 
 loadAll();
 render();
 if(S.scriptUrl){ fetchSync(); startPolling(); }
-setInterval(render,30000);
+setInterval(()=>{
+  // Only update the sync status text, don't re-render the whole page
+  // This prevents keyboard dismissal on mobile
+  const metaEl = document.querySelector('.header-meta');
+  if(metaEl && !S.showSettings){
+    const configured=!!S.scriptUrl;
+    const dotCls=!configured?"":S.syncing?"syncing":S.syncError?"err":"live";
+    const syncMsg=!configured?"Not synced — add Script URL in Settings"
+      :S.syncing?"Syncing…"
+      :S.syncError?S.syncError
+      :S.lastSynced?"Synced "+fmtTime(S.lastSynced)+(S.userName?" by "+S.userName:"")
+      :"Connected";
+    metaEl.innerHTML='<span class="sdot '+dotCls+'"></span><span style="color:#b8a898">'+syncMsg+'</span>'
+      +(configured&&!S.syncing?'<span style="cursor:pointer;color:#b8a898" onclick="fetchSync()">↻</span>':"");
+  }
+},30000);
 </script>
 </body>
 </html>
