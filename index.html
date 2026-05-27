@@ -871,6 +871,14 @@ function renderSettings(){
 }
 
 function render(){
+  // Don't re-render while user is actively typing — prevents keyboard dismissal on iOS
+  const active = document.activeElement;
+  const isTyping = active && (active.tagName==="INPUT"||active.tagName==="TEXTAREA");
+  if(isTyping){
+    S._pendingRender=true;
+    return;
+  }
+  S._pendingRender=false;
   const scrollY = window.scrollY;
   let html=renderHeader()+renderStepper()+renderError();
   if(S.loading){
@@ -889,6 +897,13 @@ function render(){
 
 loadAll();
 render();
+
+// Flush any render that was blocked while keyboard was open
+document.addEventListener('focusout', ()=>{
+  setTimeout(()=>{
+    if(S._pendingRender) render();
+  }, 100);
+});
 if(S.scriptUrl){ fetchSync(); startPolling(); }
 setInterval(()=>{
   // Only update the sync status text, don't re-render the whole page
