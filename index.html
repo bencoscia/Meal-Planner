@@ -5,141 +5,254 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pantry Planner</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500&display=swap');
-:root{--bg:#faf7f2;--surface:#fff;--border:#e8e0d4;--text:#2a2118;--muted:#8a7d6e;--accent:#c0622a;--accent-light:#fdf0e8;--accent2:#4a7c59;--accent2-light:#eef5f0;}
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600;700&display=swap');
+
+:root{
+  --bg:#f5f6f7; --surface:#ffffff; --border:#d7dbde; --text:#1a1d1f; --muted:#697280;
+  --accent:#0e7c86; --accent-light:#e2f1f0;
+  --accent2:#b45309; --accent2-light:#fdf0e0;
+  --danger:#b3271e; --danger-bg:#fdeceb; --danger-border:#f0bdb8;
+  --warn:#8a5a10; --warn-bg:#fdf3e2; --warn-border:#f0d9a8;
+  --header-bg:#14282a; --header-text:#f2f5f4; --header-muted:#9fb8b8;
+}
+[data-theme="ink"]{
+  --bg:#17181a; --surface:#202226; --border:#34373b; --text:#eef0f1; --muted:#9aa0a6;
+  --accent:#e8823c; --accent-light:#3a2a1c;
+  --accent2:#5b9bd5; --accent2-light:#1c2b3a;
+  --danger:#e5675a; --danger-bg:#3a2220; --danger-border:#5c332e;
+  --warn:#e0b25c; --warn-bg:#3a2f1c; --warn-border:#5c4a2e;
+  --header-bg:#0f1011; --header-text:#f2ece5; --header-muted:#b89a7a;
+}
+[data-theme="citrus"]{
+  --bg:#fff9ec; --surface:#ffffff; --border:#f0e0b8; --text:#2b2410; --muted:#9c8a5c;
+  --accent:#8b3a62; --accent-light:#f6e5ee;
+  --accent2:#e0932c; --accent2-light:#fdf0dc;
+  --danger:#b3392f; --danger-bg:#fbe8e4; --danger-border:#eec3bb;
+  --warn:#9c6a10; --warn-bg:#fbf0d8; --warn-border:#ecd898;
+  --header-bg:#3d1a2c; --header-text:#fdf3f8; --header-muted:#d9a8c0;
+}
+[data-theme="fog"]{
+  --bg:#fafafa; --surface:#ffffff; --border:#e2e2e2; --text:#171717; --muted:#757575;
+  --accent:#3a5ba0; --accent-light:#e8edf6;
+  --accent2:#55606b; --accent2-light:#eceef0;
+  --danger:#a5352b; --danger-bg:#f7e9e7; --danger-border:#e6c4bf;
+  --warn:#8a6a10; --warn-bg:#f6f0dc; --warn-border:#e6d8a0;
+  --header-bg:#20242b; --header-text:#f2f4f7; --header-muted:#a9b4c2;
+}
+[data-theme="cobalt"]{
+  --bg:#11151c; --surface:#1a2029; --border:#2c3444; --text:#eef1f6; --muted:#8b95a5;
+  --accent:#4d8dff; --accent-light:#1c2c4a;
+  --accent2:#e0a458; --accent2-light:#3a2e1c;
+  --danger:#ef6b5e; --danger-bg:#3a2320; --danger-border:#5c332c;
+  --warn:#e0b25c; --warn-bg:#3a2f1e; --warn-border:#5c4a2c;
+  --header-bg:#0a0d12; --header-text:#eef1f6; --header-muted:#7b8aa3;
+}
+[data-theme="clay"]{
+  --bg:#f2ece4; --surface:#fbf8f4; --border:#e0d3c2; --text:#2e2620; --muted:#8a7a68;
+  --accent:#a1553c; --accent-light:#f2ddd3;
+  --accent2:#5f7a8a; --accent2-light:#e6edf0;
+  --danger:#a5352b; --danger-bg:#f2ddd7; --danger-border:#e0b8ac;
+  --warn:#8a6a10; --warn-bg:#f2e6c8; --warn-border:#e0cf9c;
+  --header-bg:#2e2018; --header-text:#f5ece2; --header-muted:#c2a68a;
+}
+[data-theme="birch"]{
+  --bg:#faf9fb; --surface:#ffffff; --border:#e6e2ea; --text:#201e26; --muted:#79747f;
+  --accent:#6a5b8a; --accent-light:#eae5f0;
+  --accent2:#c98a4a; --accent2-light:#f5e8d8;
+  --danger:#a5352b; --danger-bg:#f5e4e1; --danger-border:#e0bcb5;
+  --warn:#8a6a10; --warn-bg:#f5efdc; --warn-border:#e0d4a0;
+  --header-bg:#211d2b; --header-text:#f5f2f8; --header-muted:#a99bc2;
+}
+
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
-.header{background:var(--text);color:#faf7f2;padding:20px 24px 16px;position:relative;}
-.header::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--accent),#e8954a,var(--accent2));}
+body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;transition:background 0.2s,color 0.2s;}
+
+/* Header */
+.header{background:var(--header-bg);color:var(--header-text);padding:20px 24px 16px;position:relative;transition:background 0.2s;}
+.header::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:3px;background:var(--accent);}
 .header-row{display:flex;justify-content:space-between;align-items:center;}
-.header h1{font-family:'Playfair Display',serif;font-size:26px;font-weight:400;}
-.header h1 em{font-style:italic;color:#e8954a;}
-.header-meta{font-size:12px;margin-top:5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-.sdot{width:7px;height:7px;border-radius:50%;background:#b8a898;flex-shrink:0;display:inline-block;}
-.sdot.live{background:#6bcf8a;}
-.sdot.err{background:#f08080;}
-.sdot.syncing{background:#e8954a;animation:pulse 1s ease-in-out infinite;}
-.settings-btn{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:#faf7f2;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.header h1{font-family:'IBM Plex Sans',sans-serif;font-size:24px;font-weight:700;letter-spacing:-0.3px;}
+.header h1 em{font-style:normal;font-weight:400;color:var(--header-muted);}
+.header-meta{font-size:12px;margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--header-muted);}
+.sdot{width:7px;height:7px;border-radius:50%;background:var(--header-muted);flex-shrink:0;display:inline-block;}
+.sdot.live{background:var(--accent2);}
+.sdot.err{background:var(--danger);}
+.sdot.syncing{background:var(--accent);animation:pulse 1s ease-in-out infinite;}
+.settings-btn{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.22);color:var(--header-text);border-radius:7px;padding:6px 12px;font-size:12px;font-weight:500;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;transition:all 0.15s;}
 .settings-btn:hover{background:rgba(255,255,255,0.2);}
-.stepper{display:flex;align-items:center;padding:14px 24px;background:var(--surface);border-bottom:1px solid var(--border);}
-.step-item{display:flex;align-items:center;gap:8px;flex:1;}
-.step-circle{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex-shrink:0;}
-.step-circle.active{background:var(--accent);color:white;}
-.step-circle.done{background:var(--accent2);color:white;}
-.step-circle.inactive{background:var(--border);color:var(--muted);}
-.step-label{font-size:13px;font-weight:500;color:var(--muted);}
-.step-label.active{color:var(--accent);}
-.step-label.done{color:var(--accent2);}
-.step-connector{flex:1;height:1px;background:var(--border);margin:0 6px;}
+
+/* Tab bar — index-tab style */
+.tabbar{display:flex;background:var(--bg);border-bottom:2px solid var(--border);gap:4px;padding:8px 10px 0;}
+.tab-item{flex:1;text-align:center;padding:11px 6px;font-size:11px;font-weight:600;letter-spacing:0.4px;text-transform:uppercase;color:var(--muted);cursor:pointer;background:var(--surface);border:2px solid var(--border);border-bottom:none;border-radius:7px 7px 0 0;transition:all 0.15s;position:relative;top:2px;}
+.tab-item.active{color:var(--accent);border-color:var(--accent);top:0;font-weight:700;}
+.tab-item:hover{color:var(--text);}
+
 .content{max-width:780px;margin:0 auto;padding:28px 20px 60px;}
-.section-title{font-family:'Playfair Display',serif;font-size:22px;font-weight:400;margin-bottom:4px;}
+.section-title{font-family:'IBM Plex Sans',sans-serif;font-size:20px;font-weight:700;letter-spacing:-0.2px;margin-bottom:4px;}
 .section-desc{font-size:14px;color:var(--muted);margin-bottom:24px;}
-.btn{font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;padding:9px 18px;border-radius:8px;border:none;cursor:pointer;transition:all 0.2s;display:inline-flex;align-items:center;gap:6px;}
-.btn-primary{background:var(--accent);color:white;}
-.btn-primary:hover{background:#a8551f;}
+
+.btn{font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:600;padding:9px 18px;border-radius:8px;border:none;cursor:pointer;transition:all 0.15s;display:inline-flex;align-items:center;gap:6px;}
+.btn-primary{background:var(--accent);color:#fff;}
+.btn-primary:hover{filter:brightness(0.9);}
 .btn-primary:disabled{opacity:0.5;cursor:not-allowed;}
-.btn-secondary{background:var(--bg);color:var(--text);border:1.5px solid var(--border);}
+.btn-secondary{background:var(--surface);color:var(--text);border:1.5px solid var(--border);}
 .btn-secondary:hover{border-color:var(--accent);color:var(--accent);}
-.btn-lg{padding:13px 28px;font-size:15px;border-radius:10px;}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;}
+.btn-lg{padding:13px 28px;font-size:15px;border-radius:9px;}
+
+.card{background:var(--surface);border:1.5px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px;}
 .add-row{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;}
-.fi{font-family:'DM Sans',sans-serif;font-size:14px;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none;}
+.fi{font-family:'IBM Plex Sans',sans-serif;font-size:14px;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none;}
 .fi:focus{border-color:var(--accent);}
 .fi.name{flex:2;min-width:120px;}
 .fi.qty{flex:1;min-width:80px;}
 .fi.cat{flex:1.5;min-width:110px;}
+
 .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px;}
-.inv-count{font-size:12px;background:var(--accent-light);color:var(--accent);padding:2px 10px;border-radius:10px;font-weight:500;}
+.inv-count{font-family:'IBM Plex Mono',monospace;font-size:12px;background:var(--accent-light);color:var(--accent);padding:2px 10px;border-radius:6px;font-weight:600;}
 .cat-group{margin-bottom:14px;}
-.cat-label{font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:7px;}
+.cat-label{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:7px;}
 .inv-grid{display:flex;flex-wrap:wrap;gap:7px;}
-.inv-chip{display:flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 10px 4px 13px;font-size:13px;}
-.inv-chip .qty{color:var(--muted);font-size:12px;}
+.inv-chip{display:flex;align-items:center;gap:6px;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:4px 10px 4px 12px;font-size:13px;}
+.inv-chip .qty{font-family:'IBM Plex Mono',monospace;color:var(--muted);font-size:11px;}
 .inv-chip button{background:none;border:none;cursor:pointer;color:var(--muted);font-size:16px;line-height:1;padding:0;}
-.inv-chip button:hover{color:#c0392b;}
+.inv-chip button:hover{color:var(--danger);}
+
 .empty-state{text-align:center;padding:28px;color:var(--muted);font-size:14px;}
 .empty-state .icon{font-size:32px;margin-bottom:8px;}
+
+/* Pantry / Grocery checklists — "stamp" checkbox signature */
+.pantry-list, .grocery-list{display:flex;flex-direction:column;gap:2px;margin-bottom:4px;}
+.pantry-item, .grocery-item{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--border);}
+.pantry-item:last-child, .grocery-item:last-child{border-bottom:none;}
+.grocery-item.checked .grocery-text{text-decoration:line-through;color:var(--muted);}
+.pantry-item:not(.stocked) .pantry-text{font-style:italic;color:var(--muted);}
+.pantry-check, .grocery-check{display:inline-flex;cursor:pointer;flex-shrink:0;}
+.pantry-checkmark, .grocery-checkmark{
+  width:22px;height:22px;border:2px solid var(--border);border-radius:6px;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--surface);transition:all 0.15s;
+}
+.pantry-checkmark svg, .grocery-checkmark svg{width:13px;height:13px;opacity:0;transform:scale(0.6);transition:opacity 0.15s,transform 0.15s;}
+.pantry-item.stocked .pantry-checkmark, .grocery-item.checked .grocery-checkmark{
+  background:var(--accent); border-color:var(--accent);
+}
+.pantry-item.stocked .pantry-checkmark svg, .grocery-item.checked .grocery-checkmark svg{opacity:1;transform:scale(1);}
+.pantry-text, .grocery-text{flex:1;font-size:14px;}
+.pantry-qty{font-family:'IBM Plex Mono',monospace;color:var(--muted);font-size:12px;margin-right:2px;}
+.pantry-out-badge{font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:var(--warn);background:var(--warn-bg);border:1px solid var(--warn-border);border-radius:6px;padding:2px 7px;flex-shrink:0;}
+.pantry-add-grocery{font-size:11px;font-weight:600;padding:4px 10px;border-radius:14px;border:1px solid var(--accent);background:var(--accent-light);color:var(--accent);cursor:pointer;flex-shrink:0;white-space:nowrap;}
+.pantry-add-grocery:disabled{opacity:0.6;cursor:default;border-color:var(--border);background:var(--bg);color:var(--muted);}
+.grocery-source{font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:2px 7px;flex-shrink:0;}
+.rm-btn{background:none;border:none;cursor:pointer;color:var(--muted);font-size:20px;line-height:1;padding:0 4px;flex-shrink:0;}
+.rm-btn:hover{color:var(--danger);}
+
+/* Dietary toggles */
 .diet-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:10px;margin-bottom:24px;}
-.diet-toggle{display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface);cursor:pointer;font-size:14px;user-select:none;}
-.diet-toggle.active{border-color:var(--accent2);background:var(--accent2-light);color:var(--accent2);font-weight:500;}
+.diet-toggle{display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface);cursor:pointer;font-size:14px;user-select:none;transition:all 0.15s;}
+.diet-toggle.active{border-color:var(--accent2);background:var(--accent2-light);color:var(--accent2);font-weight:600;}
+.diet-toggle:hover{border-color:var(--accent);}
+
+/* Household member editor */
 .member-row{display:flex;gap:8px;margin-bottom:8px;align-items:center;flex-wrap:wrap;}
-.member-row input,.member-row select{font-family:'DM Sans',sans-serif;font-size:14px;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none;}
+.member-row input,.member-row select{font-family:'IBM Plex Sans',sans-serif;font-size:14px;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none;}
 .member-row input:focus,.member-row select:focus{border-color:var(--accent);}
 .mname{flex:2;min-width:100px;}
 .mtype{flex:1;min-width:90px;}
-.mage{width:64px;text-align:center;}
-.rm-btn{background:none;border:none;cursor:pointer;color:var(--muted);font-size:22px;line-height:1;padding:0 4px;}
-.rm-btn:hover{color:#c0392b;}
-.fixed-item{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;}
-.fixed-day{font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--accent);margin-right:8px;}
-.fixed-form{background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:14px;margin-top:8px;}
+.mage{width:64px;text-align:center;font-family:'IBM Plex Mono',monospace;}
+
+/* Fixed meals */
+.fixed-item{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;margin-bottom:6px;}
+.fixed-day{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:var(--accent);margin-right:8px;}
+.fixed-form{background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:14px;margin-top:8px;}
 .fixed-form-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;}
-.fixed-form select,.fixed-form input{font-family:'DM Sans',sans-serif;font-size:14px;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);outline:none;}
+.fixed-form select,.fixed-form input{font-family:'IBM Plex Sans',sans-serif;font-size:14px;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);outline:none;}
 .fixed-form select{flex:1;min-width:100px;}
 .fixed-form input.fdesc{width:100%;margin-bottom:8px;}
-.nav-row{display:flex;justify-content:space-between;align-items:center;margin-top:28px;padding-top:20px;border-top:1px solid var(--border);}
-.warn-banner{font-size:13px;padding:10px 14px;border-radius:8px;margin-bottom:16px;background:#fff8ec;color:#7a5a10;border:1px solid #f0d090;}
+
+.error-bar{background:var(--danger-bg);color:var(--danger);border-bottom:3px solid var(--danger-border);padding:12px 20px;font-size:14px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
+.error-bar button{background:none;border:none;cursor:pointer;color:var(--danger);font-size:20px;line-height:1;flex-shrink:0;}
+.warn-banner{font-size:13px;padding:10px 14px;border-radius:8px;margin-bottom:16px;background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-border);}
+
 .loading-wrap{text-align:center;padding:60px 24px;}
-.loading-wrap .ltitle{font-family:'Playfair Display',serif;font-size:22px;margin-bottom:10px;}
+.loading-wrap .ltitle{font-family:'IBM Plex Sans',sans-serif;font-size:20px;font-weight:700;margin-bottom:10px;}
 .loading-wrap p{font-size:14px;color:var(--muted);margin-bottom:20px;}
 .dots{display:inline-flex;gap:5px;align-items:center;}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 1.2s ease-in-out infinite;}
 .dot:nth-child(2){animation-delay:0.2s;}
 .dot:nth-child(3){animation-delay:0.4s;}
 @keyframes pulse{0%,100%{opacity:0.3;transform:scale(0.8)}50%{opacity:1;transform:scale(1.2)}}
-.plan-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:12px;}
-.day-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:10px;overflow:hidden;}
+
+/* Day cards */
+.day-card{background:var(--surface);border:1.5px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden;}
+.day-card.hero-day{border:2px solid var(--accent);box-shadow:0 4px 16px rgba(0,0,0,0.06);}
 .day-header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;cursor:pointer;user-select:none;}
-.day-name{font-family:'Playfair Display',serif;font-size:17px;}
-.day-preview{display:flex;gap:7px;flex-wrap:wrap;}
-.meal-badge{font-size:12px;color:var(--muted);background:var(--bg);padding:2px 9px;border-radius:10px;border:1px solid var(--border);}
+.day-name{font-family:'IBM Plex Sans',sans-serif;font-size:16px;font-weight:700;}
+.day-card.hero-day .day-name{font-size:19px;}
+.meal-badge{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);background:var(--bg);padding:2px 9px;border-radius:6px;border:1px solid var(--border);}
 .chevron{color:var(--muted);font-size:11px;transition:transform 0.2s;margin-left:8px;}
 .chevron.open{transform:rotate(180deg);}
 .day-meals{border-top:1px solid var(--border);display:none;}
 .day-meals.open{display:block;}
 .meal-row{padding:14px 18px;border-bottom:1px solid var(--border);}
 .meal-row:last-child{border-bottom:none;}
-.meal-type{font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--accent);margin-bottom:3px;}
-.meal-name{font-size:15px;font-weight:500;margin-bottom:9px;}
+.meal-type{font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--accent);margin-bottom:3px;}
+.meal-name{font-family:'IBM Plex Sans',sans-serif;font-size:15px;font-weight:600;margin-bottom:9px;}
 .ingredients{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px;}
-.ing-tag{font-size:12px;padding:2px 9px;border-radius:10px;border:1px solid var(--border);background:var(--bg);}
-.ing-tag.need{border-color:#f0c090;background:#fff8f0;color:#9a5a10;}
+.ing-tag{font-family:'IBM Plex Mono',monospace;font-size:12px;padding:2px 9px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);}
+.ing-tag.need{border-color:var(--warn-border);background:var(--warn-bg);color:var(--warn);}
 .recipe-block{padding:10px 12px;background:var(--bg);border-radius:8px;border-left:3px solid var(--accent);}
-.recipe-title{font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:7px;}
+.recipe-title{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:7px;}
 .recipe-step{display:flex;gap:8px;font-size:13px;line-height:1.5;margin-bottom:5px;}
 .recipe-step:last-child{margin-bottom:0;}
-.step-num{flex-shrink:0;width:18px;height:18px;border-radius:50%;background:var(--accent);color:white;font-size:10px;display:flex;align-items:center;justify-content:center;margin-top:2px;}
-.shopping-card{background:var(--accent2-light);border:1.5px solid #b5d4be;border-radius:12px;padding:18px 22px;margin-top:20px;}
-.shopping-title{font-family:'Playfair Display',serif;font-size:17px;color:var(--accent2);margin-bottom:12px;}
+.step-num{flex-shrink:0;width:18px;height:18px;border-radius:50%;background:var(--accent);color:#fff;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:2px;}
+
+/* Nutrition chips — theme-safe, data-forward */
+.nutri-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;align-items:center;}
+.nutri-chip{display:inline-flex;align-items:baseline;gap:4px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:4px 10px;}
+.nutri-num{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:13px;color:var(--text);}
+.nutri-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.3px;}
+.nutri-serving{font-size:12px;color:var(--muted);}
+.nutri-note{font-size:11px;color:var(--muted);width:100%;}
+
+.shopping-card{background:var(--accent2-light);border:1.5px solid var(--accent2);border-radius:10px;padding:18px 22px;margin-top:20px;}
+.shopping-title{font-family:'IBM Plex Sans',sans-serif;font-size:16px;font-weight:700;color:var(--accent2);margin-bottom:12px;}
 .shopping-grid{display:flex;flex-wrap:wrap;gap:7px;}
-.shop-item{font-size:13px;background:white;border:1px solid #b5d4be;border-radius:14px;padding:4px 12px;color:#2a5a38;}
+.shop-item{font-family:'IBM Plex Mono',monospace;font-size:12px;background:var(--surface);border:1px solid var(--accent2);border-radius:6px;padding:4px 11px;color:var(--accent2);}
+
+/* Settings / Preferences overlay */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;}
-.settings-panel{background:var(--surface);border-radius:16px;width:100%;max-width:480px;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,0.2);max-height:90vh;overflow-y:auto;}
-.settings-title{font-family:'Playfair Display',serif;font-size:22px;margin-bottom:6px;}
+.settings-panel{background:var(--surface);border-radius:12px;width:100%;max-width:480px;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,0.25);max-height:90vh;overflow-y:auto;border:1.5px solid var(--border);}
+.settings-title{font-family:'IBM Plex Sans',sans-serif;font-size:20px;font-weight:700;margin-bottom:6px;}
 .settings-desc{font-size:13px;color:var(--muted);margin-bottom:20px;line-height:1.6;}
 .field{margin-bottom:16px;}
-.field label{display:block;font-size:12px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;}
-.field input{width:100%;font-family:'DM Sans',sans-serif;font-size:14px;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none;}
+.field label{display:block;font-size:12px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;}
+.field input{width:100%;font-family:'IBM Plex Sans',sans-serif;font-size:14px;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none;}
 .field input:focus{border-color:var(--accent);}
 .field-note{font-size:12px;color:var(--muted);margin-top:5px;line-height:1.4;}
-.settings-section{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin:20px 0 12px;padding-top:16px;border-top:1px solid var(--border);}
+.settings-section{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);margin:20px 0 12px;padding-top:16px;border-top:1px solid var(--border);}
 .settings-actions{display:flex;gap:10px;margin-top:24px;justify-content:flex-end;}
+
+/* Theme picker */
+.theme-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:8px;}
+.theme-swatch{cursor:pointer;border:2px solid var(--border);border-radius:10px;padding:8px;text-align:center;transition:all 0.15s;background:var(--surface);}
+.theme-swatch.active{border-color:var(--accent);}
+.theme-preview{height:34px;border-radius:6px;margin-bottom:6px;display:flex;overflow:hidden;border:1px solid rgba(0,0,0,0.08);}
+.theme-preview span{flex:1;}
+.theme-swatch-label{font-size:11px;font-weight:600;color:var(--text);}
+.theme-swatch.active .theme-swatch-label{color:var(--accent);}
+
 .pref-section{margin-bottom:24px;}
-.sub-label{font-size:14px;font-weight:500;margin-bottom:8px;}
+.sub-label{font-size:14px;font-weight:600;margin-bottom:8px;}
 .sub-desc{font-size:13px;color:var(--muted);}
 .section-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;}
-/* Error banner */
-.error-bar{background:#fff0f0;color:#c0392b;border-bottom:3px solid #f0b0b0;padding:12px 20px;font-size:14px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
-.error-bar button{background:none;border:none;cursor:pointer;color:#c0392b;font-size:20px;line-height:1;flex-shrink:0;}
+
 /* Responsive */
 @media(max-width:600px){
   .content{padding:16px 14px 80px;}
   .header{padding:14px 16px 12px;}
-  .header h1{font-size:22px;}
-  .stepper{padding:10px 14px;}
-  .step-label{font-size:11px;}
-  .step-circle{width:24px;height:24px;font-size:11px;}
-  .section-title{font-size:19px;}
+  .header h1{font-size:20px;}
+  .tab-item{font-size:10px;padding:10px 4px;}
+  .section-title{font-size:18px;}
   .add-row{flex-direction:column;}
   .add-row .fi{width:100%!important;flex:none!important;}
   .add-row .btn{width:100%;justify-content:center;}
@@ -148,55 +261,25 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   .member-row .mname{flex:1 1 100%;}
   .fixed-form-row{flex-direction:column;}
   .fixed-form-row select{width:100%;}
-  .nav-row{flex-direction:column;gap:10px;}
-  .nav-row .btn{width:100%;justify-content:center;}
-  .plan-header{flex-direction:column;}
-  .plan-header>div:last-child{display:flex;gap:8px;width:100%;}
-  .plan-header>div:last-child .btn{flex:1;justify-content:center;}
-  .day-preview{display:none;}
   .day-header{padding:14px;}
   .meal-row{padding:12px 14px;}
   .settings-panel{padding:20px 18px;}
-  .mobile-nav{display:flex;position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--border);padding:10px 16px;gap:10px;z-index:50;box-shadow:0 -4px 20px rgba(0,0,0,0.08);}
-  .mobile-nav .btn{flex:1;justify-content:center;padding:12px;}
-  .desktop-nav{display:none;}
+  .theme-grid{grid-template-columns:1fr 1fr;}
 }
-@media(min-width:601px){
-  .mobile-nav{display:none;}
-  .desktop-nav{display:flex;}
-}
-.grocery-list{display:flex;flex-direction:column;gap:2px;}
-.grocery-item{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--border);}
-.grocery-item:last-child{border-bottom:none;}
-.grocery-item.checked .grocery-text{text-decoration:line-through;color:var(--muted);}
-.grocery-check{display:inline-flex;cursor:pointer;flex-shrink:0;}
-.grocery-checkmark{width:20px;height:20px;border:2px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px;color:white;background:var(--surface);}
-.grocery-item.checked .grocery-checkmark{background:var(--text);border-color:var(--text);}
-.grocery-text{flex:1;font-size:14px;}
-.grocery-source{font-size:10px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:2px 7px;flex-shrink:0;}
-.pantry-list{display:flex;flex-direction:column;gap:2px;margin-bottom:4px;}
-.pantry-item{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--border);}
-.pantry-item:last-child{border-bottom:none;}
-.pantry-check{display:inline-flex;cursor:pointer;flex-shrink:0;}
-.pantry-checkmark{width:20px;height:20px;border:2px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px;color:white;background:var(--surface);}
-.pantry-item.stocked .pantry-checkmark{background:var(--text);border-color:var(--text);}
-.pantry-text{flex:1;font-size:14px;}
-.pantry-item:not(.stocked) .pantry-text{font-style:italic;color:var(--muted);}
-.pantry-qty{color:var(--muted);font-size:12px;margin-right:2px;}
-.pantry-out-badge{font-size:10px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:#9a5a10;background:#fff8f0;border:1px solid #f0c090;border-radius:6px;padding:2px 7px;flex-shrink:0;}
-.pantry-add-grocery{font-size:11px;font-weight:500;padding:4px 10px;border-radius:14px;border:1px solid var(--accent);background:var(--accent-light);color:var(--accent);cursor:pointer;flex-shrink:0;white-space:nowrap;}
-.pantry-add-grocery:disabled{opacity:0.6;cursor:default;border-color:var(--border);background:var(--bg);color:var(--muted);}
-.tabbar{display:flex;background:var(--surface);border-bottom:1px solid var(--border);}
-.tab-item{flex:1;text-align:center;padding:13px 8px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all 0.15s;}
-.tab-item.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600;}
-.tab-item:hover{color:var(--text);}
-.day-card.hero-day{border:1.5px solid var(--accent);box-shadow:0 4px 20px rgba(192,98,42,0.08);}
-.day-card.hero-day .day-name{font-size:21px;}
 </style>
 </head>
 <body>
 <div id="app"></div>
 <script>
+const THEMES=[
+  {id:"slate",label:"Slate",bg:"#f5f6f7",accent:"#0e7c86",accent2:"#b45309"},
+  {id:"ink",label:"Ink",bg:"#17181a",accent:"#e8823c",accent2:"#5b9bd5"},
+  {id:"citrus",label:"Citrus",bg:"#fff9ec",accent:"#8b3a62",accent2:"#e0932c"},
+  {id:"fog",label:"Fog",bg:"#fafafa",accent:"#3a5ba0",accent2:"#55606b"},
+  {id:"cobalt",label:"Cobalt",bg:"#11151c",accent:"#4d8dff",accent2:"#e0a458"},
+  {id:"clay",label:"Clay",bg:"#f2ece4",accent:"#a1553c",accent2:"#5f7a8a"},
+  {id:"birch",label:"Birch",bg:"#faf9fb",accent:"#6a5b8a",accent2:"#c98a4a"},
+];
 const CATEGORIES=["Produce","Protein","Dairy","Grains","Pantry","Frozen","Other"];
 const DAYS=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 const DIET_OPTIONS=[
@@ -256,6 +339,7 @@ const DEFAULT_PROMPT_DAY = `You are an expert meal planner specializing in fast,
 {CONTEXT}
 {FIXED}
 {EXISTING}
+{INSTRUCTION}
 
 REQUIREMENTS:
 - Must be realistically cookable in 30 minutes or less.
@@ -316,6 +400,7 @@ function householdNutritionSummary(){
 // ── State ─────────────────────────────────────────────────────────────────────
 const S={
   view:"plan", showSettings:false, showPreferences:false,
+  theme:"slate",
   inventory:[], newItem:{name:"",qty:"",category:"Produce"},
   dietPrefs:[],
   household:[
@@ -330,6 +415,7 @@ const S={
   quickMeals:{breakfast:["Oatmeal","Greek yogurt + fruit","Eggs on toast"],lunch:["Leftover rice bowl","Tuna sandwich","Soup + bread"]},
   newQuick:{breakfast:"",lunch:""},
   mealPlan:null, loading:false, regenDay:null, generateError:"", expandedDay:null,
+  dayInstructions:{},
   groceryList:[], newGroceryItem:"",
   settingsDraft:{geminiKey:"",scriptUrl:"",userName:"",promptWeek:"",promptDay:""},
   // Sync state
@@ -358,11 +444,15 @@ function loadAll(){
   S.promptDay   = ls("promptDay") || DEFAULT_PROMPT_DAY;
   S.scriptUrl   = ls("scriptUrl") || "";
   S.userName    = ls("userName") || "";
+  S.theme = ls("theme") || "slate";
   S.settingsDraft = {geminiKey:ls("geminiKey")||"", scriptUrl:S.scriptUrl, userName:S.userName, promptWeek:S.promptWeek, promptDay:S.promptDay};
 
 }
 
 function geminiKey(){ return ls("geminiKey")||""; }
+function applyTheme(){ document.body.dataset.theme = S.theme; }
+function setTheme(id){ S.theme=id; ls("theme",id); applyTheme(); render(); }
+
 
 // ── Google Apps Script Sync ───────────────────────────────────────────────────
 let syncTimer=null;
@@ -603,11 +693,17 @@ async function regenSingleDay(day){
     "HOUSEHOLD: "+household+" (children under 5 need soft textures, mild flavors)",
     "HOUSEHOLD NUTRITION TARGETS: "+householdNutritionSummary(),
   ].join("\n");
-  const prompt=(S.promptDay||DEFAULT_PROMPT_DAY)
+  const instruction=(S.dayInstructions[day]||"").trim();
+  const instructionLine=instruction?"SPECIAL REQUEST FOR THIS MEAL (follow this): "+instruction:"";
+  let prompt=(S.promptDay||DEFAULT_PROMPT_DAY)
     .replace(/\{DAY\}/g, day)
     .replace(/\{CONTEXT\}/g, ctxLines)
     .replace(/\{FIXED\}/g, fixed?"FIXED: This dinner must be: "+fixed.description:"")
-    .replace(/\{EXISTING\}/g, existing?"ALREADY PLANNED THIS WEEK (do not repeat): "+existing:"");
+    .replace(/\{EXISTING\}/g, existing?"ALREADY PLANNED THIS WEEK (do not repeat): "+existing:"")
+    .replace(/\{INSTRUCTION\}/g, instructionLine);
+  // Fallback for a saved custom prompt that predates the {INSTRUCTION} placeholder —
+  // still honor the request by appending it rather than silently dropping it.
+  if(instructionLine && !prompt.includes(instructionLine)) prompt += "\n\n"+instructionLine;
   try{
     const text=await callGemini(key,prompt);
     const data=cleanJson(text);
@@ -785,7 +881,7 @@ function renderInventory(){
     return '<div class="pantry-item'+(stocked?" stocked":"")+'">'
       +'<label class="pantry-check">'
       +'<input type="checkbox" style="display:none" '+(stocked?"checked":"")+' onchange="toggleStocked('+item.id+')">'
-      +'<span class="pantry-checkmark">'+(stocked?"✓":"")+'</span>'
+            +'<span class="pantry-checkmark"><svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 8.5L6.5 12L13 4.5" stroke="white" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'
       +'</label>'
       +'<span class="pantry-text">'+esc(item.name)+'</span>'
       +(item.qty?'<span class="pantry-qty">'+esc(item.qty)+'</span>':"")
@@ -888,17 +984,14 @@ function renderMealCard(meal){
   }).join("");
   const steps=(meal.recipe||[]).map((s,i)=>'<div class="recipe-step"><span class="step-num">'+(i+1)+'</span><span>'+esc(s)+'</span></div>').join("");
   const n=meal.nutrition;
-  const nutritionHtml=n?'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center">'
-    +'<div style="background:#f0f7ff;border:1px solid #c0d8f0;border-radius:8px;padding:6px 12px;font-size:13px">'
-    +'<span style="font-weight:600;color:#2a5a8a">'+n.calories+'</span><span style="color:#6a8aaa;font-size:11px;margin-left:3px">kcal</span></div>'
-    +'<div style="background:#f0fff4;border:1px solid #b0dfc0;border-radius:8px;padding:6px 12px;font-size:13px">'
-    +'<span style="font-weight:600;color:#2a6a3a">'+n.protein+'g</span><span style="color:#6aaa7a;font-size:11px;margin-left:3px">protein</span></div>'
-    +'<div style="background:#fff8f0;border:1px solid #f0d0b0;border-radius:8px;padding:6px 12px;font-size:13px">'
-    +'<span style="font-weight:600;color:#8a4a10">'+n.carbs+'g</span><span style="color:#aa7a5a;font-size:11px;margin-left:3px">carbs</span></div>'
-    +'<div style="background:#fdf0f8;border:1px solid #e0b0d0;border-radius:8px;padding:6px 12px;font-size:13px">'
-    +'<span style="font-weight:600;color:#7a2a5a">'+n.fat+'g</span><span style="color:#aa6a8a;font-size:11px;margin-left:3px">fat</span></div>'
-    +(n.servingSize?'<div style="font-size:12px;color:var(--muted)">Adult: '+esc(n.servingSize)+(n.kidsServing?" · Kids: "+esc(n.kidsServing):"")+'</div>':"")
-    +'<div style="font-size:11px;color:#b8a898;width:100%">* Estimates ±20%. Not medical advice.</div>'
+  const nutriChip=(num,label)=>'<span class="nutri-chip"><span class="nutri-num">'+num+'</span><span class="nutri-label">'+label+'</span></span>';
+  const nutritionHtml=n?'<div class="nutri-row">'
+    +nutriChip(n.calories,"kcal")
+    +nutriChip(n.protein+"g","protein")
+    +nutriChip(n.carbs+"g","carbs")
+    +nutriChip(n.fat+"g","fat")
+    +(n.servingSize?'<span class="nutri-serving">Adult: '+esc(n.servingSize)+(n.kidsServing?" · Kids: "+esc(n.kidsServing):"")+'</span>':"")
+    +'<span class="nutri-note">* Estimates ±20%. Not medical advice.</span>'
     +'</div>':"";
   return '<div class="meal-name">'+esc(meal.name)+'</div>'
     +nutritionHtml
@@ -932,6 +1025,17 @@ function renderDayCard(dayData, isHero){
   const open=isHero||S.expandedDay===dayData.day;
   const dinner=dayData.dinner||(dayData.meals?.dinner);
   const isRegen=S.regenDay===dayData.day;
+  const noteVal=S.dayInstructions[dayData.day]||"";
+  const composer='<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">'
+    +'<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Want something different for '+dayData.day+'?</div>'
+    +'<div style="display:flex;gap:8px">'
+    +'<input placeholder="e.g. more veggies, use the shrimp" value="'+esc(noteVal)+'" '
+    +'oninput="S.dayInstructions[\''+dayData.day+'\']=this.value" '
+    +'onkeydown="if(event.key===\'Enter\')regenSingleDay(\''+dayData.day+'\')" '
+    +'style="flex:1;font-family:DM Sans,sans-serif;font-size:13px;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none">'
+    +'<button class="btn btn-secondary" style="font-size:13px;padding:8px 14px;flex-shrink:0" '
+    +'onclick="regenSingleDay(\''+dayData.day+'\')" '+(isRegen?"disabled":"")+'>↻ Redo</button>'
+    +'</div></div>';
   return '<div class="day-card'+(isHero?" hero-day":"")+'">'
     +'<div class="day-header"'+(isHero?"":' onclick="toggleDay(\''+dayData.day+'\')"')+'>'
     +'<span class="day-name">'+(isHero?"Today · ":"")+dayData.day+'</span>'
@@ -946,6 +1050,7 @@ function renderDayCard(dayData, isHero){
     +'<div class="day-meals'+(open?" open":"")+'"><div class="meal-row">'
     +'<div class="meal-type">Dinner</div>'
     +renderMealCard(dinner)
+    +composer
     +'</div></div></div>';
 }
 
@@ -999,7 +1104,7 @@ function renderGrocery(){
     '<div class="grocery-item'+(item.checked?" checked":"")+'">'
     +'<label class="grocery-check">'
     +'<input type="checkbox" style="display:none" '+(item.checked?"checked":"")+' onchange="toggleGroceryChecked('+item.id+')">'
-    +'<span class="grocery-checkmark">'+(item.checked?"✓":"")+'</span>'
+        +'<span class="grocery-checkmark"><svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 8.5L6.5 12L13 4.5" stroke="white" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'
     +'</label>'
     +'<span class="grocery-text">'+esc(item.text)+'</span>'
     +(sourceLabel(item.source)?'<span class="grocery-source">'+sourceLabel(item.source)+'</span>':"")
@@ -1036,9 +1141,19 @@ function renderGrocery(){
 
 function renderSettings(){
   if(!S.showSettings)return "";
+  const themeSwatches=THEMES.map(t=>
+    '<div class="theme-swatch'+(S.theme===t.id?" active":"")+'" onclick="setTheme(\''+t.id+'\')">'
+    +'<div class="theme-preview" style="background:'+t.bg+'"><span style="background:'+t.accent+'"></span><span style="background:'+t.accent2+'"></span></div>'
+    +'<div class="theme-swatch-label">'+t.label+'</div>'
+    +'</div>'
+  ).join("");
   return '<div class="overlay" onclick="if(event.target===this){S.showSettings=false;render()}">'
     +'<div class="settings-panel">'
     +'<div class="settings-title">⚙️ Settings</div>'
+
+    +'<div class="settings-section">Appearance</div>'
+    +'<div class="theme-grid">'+themeSwatches+'</div>'
+    +'<div class="field-note" style="margin-bottom:8px">Saved on this device only — each phone can pick its own.</div>'
 
     +'<div class="settings-section">AI</div>'
     +'<div class="field"><label>Gemini API Key</label>'
@@ -1103,6 +1218,7 @@ function render(){
 }
 
 loadAll();
+applyTheme();
 render();
 
 // Flush any render that was blocked while keyboard was open
