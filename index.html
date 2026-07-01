@@ -362,7 +362,7 @@ REQUIREMENTS:
 - Respect dietary preferences and fixed meals exactly. Never include avoided ingredients.
 
 Respond ONLY in this JSON, no markdown:
-{"dinner":{"name":"...","ingredients":["2 chicken breasts","*1 lime"],"recipe":["Step with time/temp","Step 2"]},"shopping_list":["item with qty"]}`;
+{"dinner":{"name":"...","ingredients":["2 chicken breasts","*1 lime"],"recipe":["Step with time/temp","Step 2"],"nutrition":{"calories":450,"protein":38,"carbs":32,"fat":14,"servingSize":"1.5 cups","kidsServing":"3/4 cup"}},"shopping_list":["item with qty"]}`;
 
 
 // ── Nutrition Helpers ─────────────────────────────────────────────────────────
@@ -382,22 +382,25 @@ function calcTDEE(member){
   const heightCm=toCm(member.height||"", member.unit||"imperial");
   const activityMultiplier={sedentary:1.2,light:1.375,moderate:1.55,active:1.725,very_active:1.9}[member.activity||"moderate"]||1.55;
   
-  let bmr=0;
-  if(member.type==="adult"||member.type==="toddler"&&age>=2){
-    // Mifflin-St Jeor
-    const isMale=member.sex==="male";
-    bmr = isMale
-      ? 10*weightKg + 6.25*heightCm - 5*age + 5
-      : 10*weightKg + 6.25*heightCm - 5*age - 161;
-  } else {
-    // Simple estimate for young kids: ~1000 + 100 * age kcal/day
-    bmr = 1000 + 100*age;
-    return Math.round(bmr); // kids don't need goal adjustment
+  // Non-adults (child/toddler): simple age-based estimate, ~1000 + 100*age kcal/day.
+  // (An earlier version routed toddlers >=2 through Mifflin-St Jeor, but they never
+  // have sex/height/weight filled in, which produced NEGATIVE targets in the AI prompt.)
+  if(member.type!=="adult"){
+    return age>0 ? Math.round(1000 + 100*age) : null;
   }
-  
-  let tdee = bmr * activityMultiplier;
+
+  // Adults: Mifflin-St Jeor. Requires real biometrics — with weight/height missing
+  // the formula degenerates to garbage (e.g. -161 BMR for sex!=="male"), so return
+  // null ("unknown") instead of guessing. This is the single place a target number
+  // is produced; householdNutritionSummary renders null as "unknown".
+  if(!(weightKg>0) || !(heightCm>0)) return null;
+  const isMale=member.sex==="male";
+  const bmr = isMale
+    ? 10*weightKg + 6.25*heightCm - 5*age + 5
+    : 10*weightKg + 6.25*heightCm - 5*age - 161;
   const goalAdj={lose:-500,maintain:0,gain:300}[member.goal||"maintain"]||0;
-  return Math.round(tdee + goalAdj);
+  const tdee = Math.round(bmr * activityMultiplier + goalAdj);
+  return tdee>=500 ? tdee : null; // sanity floor: anything lower is bad input, not a real target
 }
 
 function householdNutritionSummary(){
@@ -465,7 +468,8 @@ function setTheme(id){ S.theme=id; ls("theme",id); applyTheme(); render(); }
 
 
 // ── Google Apps Script Sync ───────────────────────────────────────────────────
-let syncTimer=null;
+let syncTimer=null;      // non-null only while a debounced push is *waiting* to fire
+let pushInFlight=false;  // true only while a push POST is actually in flight
 let pollInterval=null;
 
 function fmtTime(iso){
@@ -479,6 +483,11 @@ function fmtTime(iso){
 
 async function fetchSync(){
   if(!S.scriptUrl)return;
+  // Lost-update guard: if a local edit is waiting to push (debounce armed) or a
+  // push is mid-flight, the remote blob is staler than local state. Applying it
+  // would overwrite the edit and the pending push would then persist the stale
+  // data — silently, on both devices. Skip this cycle; the next poll catches up.
+  if(syncTimer || pushInFlight) return;
   S.syncing=true; S.syncError=""; render();
   try{
     const res=await fetch(S.scriptUrl);
@@ -501,6 +510,7 @@ function pushSync(){
   if(!S.scriptUrl)return;
   clearTimeout(syncTimer);
   syncTimer=setTimeout(async()=>{
+    syncTimer=null; pushInFlight=true;
     S.syncing=true; render();
     try{
       const payload={updatedBy:S.userName||"unknown"};
@@ -514,6 +524,7 @@ function pushSync(){
       S.lastSynced=new Date().toISOString();
       S.syncError="";
     }catch(e){ S.syncError="Sync failed: "+e.message; }
+    pushInFlight=false;
     S.syncing=false; render();
   },1000);
 }
@@ -583,7 +594,9 @@ function updateMember(id,field,value){
   setAndSync("household",updated);
 }
 function addMember(){
-  setAndSync("household",[...S.household,{id:Date.now(),name:"",type:"adult",age:""}]);
+  // Seed the full member shape (one shape everywhere) — biometrics left blank,
+  // which calcTDEE reports as "unknown" rather than computing a bogus target.
+  setAndSync("household",[...S.household,{id:Date.now(),name:"",type:"adult",age:"",sex:"",height:"",weight:"",unit:"imperial",activity:"moderate",goal:"maintain"}]);
 }
 function removeMember(id){
   setAndSync("household",S.household.filter(m=>m.id!==id));
@@ -752,6 +765,25 @@ async function regenSingleDay(day){
   S.regenDay=null; render();
 }
 
+// ── AI Response Validation ────────────────────────────────────────────────────
+// Gemini controls the "day" strings in its response, and those strings are later
+// interpolated into inline onclick handlers ('toggleDay(\'...\')') and used as
+// object keys — contexts esc() doesn't fully cover. So the invariant is enforced
+// here, at the single point where AI day data enters the plan: every day must
+// match the DAYS whitelist (case-insensitive → canonical casing). This also fixes
+// a real correctness bug: a lowercase "monday" previously sorted to the end
+// (indexOf === -1) and never matched the hero "Today" card.
+function normalizeDays(days){
+  if(!Array.isArray(days)) throw new Error("AI response missing days array");
+  const out=[];
+  days.forEach(d=>{
+    const canon=DAYS.find(x=>x.toLowerCase()===String(d&&d.day||"").trim().toLowerCase());
+    if(canon) out.push({...d, day:canon});
+  });
+  if(!out.length) throw new Error("AI response contained no recognizable day names");
+  return out;
+}
+
 // ── JSON Cleaner ─────────────────────────────────────────────────────────────
 function cleanJson(text){
   let s=text.replace(/```json|```/g,"").trim();
@@ -799,10 +831,6 @@ async function generatePlan(){
   const fixed=S.fixedMeals.length?S.fixedMeals.map(m=>"- "+m.day+" "+m.mealType+": "+m.description).join("\n"):"None";
   const avoid=S.avoid.trim()||"none";
 
-  const jsonFormat='{"breakfast":{"name":"...","ingredients":["ing1","*missing"],"recipe":["Step 1","Step 2"]},'
-    +'"lunch":{"name":"...","ingredients":["ing1"],"recipe":["Step 1","Step 2"]},'
-    +'"dinner":{"name":"...","ingredients":["ing1"],"recipe":["Step 1","Step 2"]}}';
-
   const makePrompt=(days)=>{
     const ctx="PANTRY: "+inv+"\nDIET: "+diet+"\nAVOID: "+avoid
       +"\nHOUSEHOLD: "+household+" (children under 5 need soft textures, mild flavors)"
@@ -819,9 +847,8 @@ async function generatePlan(){
       callGemini(key,makePrompt(["Friday","Saturday","Sunday"])),
     ]);
     const p1=cleanJson(res1), p2=cleanJson(res2);
-    const allDays=[...p1.days,...p2.days];
-    const dayOrder=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
-    allDays.sort((a,b)=>dayOrder.indexOf(a.day)-dayOrder.indexOf(b.day));
+    const allDays=normalizeDays([...(p1.days||[]),...(p2.days||[])]);
+    allDays.sort((a,b)=>DAYS.indexOf(a.day)-DAYS.indexOf(b.day));
     const shopping=[...new Set([...(p1.shopping_list||[]),...(p2.shopping_list||[])])];
     // Normalise: support both {dinner:{...}} and {meals:{dinner:{...}}} from Gemini
     allDays.forEach(d=>{
@@ -836,7 +863,7 @@ async function generatePlan(){
 
 // ── Render ────────────────────────────────────────────────────────────────────
 function dots(){return '<div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>';}
-function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
 
 function renderError(){
   if(!S.generateError)return "";
@@ -859,8 +886,8 @@ function renderHeader(){
     +'<button class="settings-btn" onclick="S.showSettings=true;S.settingsDraft={geminiKey:ls(\'geminiKey\')||\'\'  ,scriptUrl:S.scriptUrl,userName:S.userName,promptWeek:S.promptWeek,promptDay:S.promptDay};render()">⚙ Settings</button>'
     +'</div></div>'
     +'<div class="header-meta">'
-    +'<span class="sdot '+dotCls+'"></span><span style="color:#b8a898">'+syncMsg+'</span>'
-    +(configured&&!S.syncing?'<span style="cursor:pointer;color:#b8a898" onclick="fetchSync()">↻</span>':"")
+    +'<span class="sdot '+dotCls+'"></span><span>'+syncMsg+'</span>'
+    +(configured&&!S.syncing?'<span style="cursor:pointer" onclick="fetchSync()">↻</span>':"")
     +'</div></div>';
 }
 
@@ -1045,7 +1072,7 @@ function renderQuickMeals(){
       +'</div></div>';
   }).join("");
   return '<div class="card" style="margin-top:24px">'
-    +'<div style="font-family:\'Playfair Display\',serif;font-size:18px;margin-bottom:4px">Quick Meal Ideas</div>'
+    +'<div style="font-family:\'IBM Plex Sans\',sans-serif;font-size:16px;font-weight:600;margin-bottom:4px">Quick Meal Ideas</div>'
     +'<div style="font-size:13px;color:var(--muted);margin-bottom:16px">Your go-to breakfasts and lunches. Synced with your household.</div>'
     +sections+'</div>';
 }
@@ -1061,7 +1088,7 @@ function renderDayCard(dayData, isHero){
     +'<input placeholder="e.g. more veggies, use the shrimp" value="'+esc(noteVal)+'" '
     +'oninput="S.dayInstructions[\''+dayData.day+'\']=this.value" '
     +'onkeydown="if(event.key===\'Enter\')regenSingleDay(\''+dayData.day+'\')" '
-    +'style="flex:1;font-family:DM Sans,sans-serif;font-size:13px;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none">'
+    +'style="flex:1;font-family:\'IBM Plex Sans\',sans-serif;font-size:13px;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none">'
     +'<button class="btn btn-secondary" style="font-size:13px;padding:8px 14px;flex-shrink:0" '
     +'onclick="regenSingleDay(\''+dayData.day+'\')" '+(isRegen?"disabled":"")+'>↻ Redo</button>'
     +'</div></div>';
@@ -1198,7 +1225,7 @@ function renderSettings(){
 
     +'<div class="settings-section">AI</div>'
     +'<div class="field"><label>Gemini API Key</label>'
-    +'<input type="password" placeholder="AIza..." value="'+esc(S.settingsDraft.geminiKey)+'" oninput="S.settingsDraft.geminiKey=this.value.trim();render()">'
+    +'<input type="password" placeholder="AIza..." value="'+esc(S.settingsDraft.geminiKey)+'" oninput="S.settingsDraft.geminiKey=this.value.trim()">'
     +'<div class="field-note">Stored only in this browser. Get a free key at <a href="https://aistudio.google.com" target="_blank" style="color:var(--accent)">aistudio.google.com</a></div></div>'
 
     +'<div class="settings-section">Sync</div>'
@@ -1217,18 +1244,18 @@ function renderSettings(){
     +'<button class="btn btn-secondary" style="font-size:13px;padding:6px 14px;flex-shrink:0" onclick="resetHousehold();S.showSettings=false;render()">Reset</button>'
     +'</div>'
     +'<div class="settings-section">Prompts</div>'
-    +'<p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5">Customize how the AI generates your meal plan. Use {DAYS}, {CONTEXT}, {DAY}, {FIXED}, {EXISTING} as placeholders. Changes sync to both devices.</p>'
+    +'<p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.5">Customize how the AI generates your meal plan. Use {DAYS}, {CONTEXT}, {DAY}, {FIXED}, {EXISTING}, {INSTRUCTION} as placeholders. Changes sync to both devices.</p>'
     +'<div class="field"><label>Full Week Prompt</label>'
-    +'<textarea style="width:100%;font-family:DM Sans,sans-serif;font-size:12px;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none;min-height:160px;resize:vertical;line-height:1.5" oninput="S.settingsDraft.promptWeek=this.value">'+esc(S.settingsDraft.promptWeek||DEFAULT_PROMPT_WEEK)+'</textarea>'
+    +'<textarea style="width:100%;font-family:\'IBM Plex Mono\',monospace;font-size:12px;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none;min-height:160px;resize:vertical;line-height:1.5" oninput="S.settingsDraft.promptWeek=this.value">'+esc(S.settingsDraft.promptWeek||DEFAULT_PROMPT_WEEK)+'</textarea>'
     +'<div style="display:flex;justify-content:flex-end;margin-top:4px"><button style="font-size:11px;color:var(--accent);background:none;border:none;cursor:pointer" onclick="S.settingsDraft.promptWeek=DEFAULT_PROMPT_WEEK;render()">Reset to default</button></div>'
     +'</div>'
     +'<div class="field"><label>Single Day Prompt</label>'
-    +'<textarea style="width:100%;font-family:DM Sans,sans-serif;font-size:12px;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none;min-height:160px;resize:vertical;line-height:1.5" oninput="S.settingsDraft.promptDay=this.value">'+esc(S.settingsDraft.promptDay||DEFAULT_PROMPT_DAY)+'</textarea>'
+    +'<textarea style="width:100%;font-family:\'IBM Plex Mono\',monospace;font-size:12px;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none;min-height:160px;resize:vertical;line-height:1.5" oninput="S.settingsDraft.promptDay=this.value">'+esc(S.settingsDraft.promptDay||DEFAULT_PROMPT_DAY)+'</textarea>'
     +'<div style="display:flex;justify-content:flex-end;margin-top:4px"><button style="font-size:11px;color:var(--accent);background:none;border:none;cursor:pointer" onclick="S.settingsDraft.promptDay=DEFAULT_PROMPT_DAY;render()">Reset to default</button></div>'
     +'</div>'
     +'<div class="settings-actions">'
     +'<button class="btn btn-secondary" onclick="S.showSettings=false;render()">Cancel</button>'
-    +'<button class="btn btn-primary" onclick="saveSettings()" '+(S.settingsDraft.geminiKey?"":"disabled")+'>Save</button>'
+    +'<button class="btn btn-primary" onclick="saveSettings()">Save</button>'
     +'</div></div></div>';
 }
 
@@ -1281,8 +1308,8 @@ setInterval(()=>{
       :S.syncError?S.syncError
       :S.lastSynced?"Synced "+fmtTime(S.lastSynced)+(S.userName?" by "+S.userName:"")
       :"Connected";
-    metaEl.innerHTML='<span class="sdot '+dotCls+'"></span><span style="color:#b8a898">'+syncMsg+'</span>'
-      +(configured&&!S.syncing?'<span style="cursor:pointer;color:#b8a898" onclick="fetchSync()">↻</span>':"");
+    metaEl.innerHTML='<span class="sdot '+dotCls+'"></span><span>'+syncMsg+'</span>'
+      +(configured&&!S.syncing?'<span style="cursor:pointer" onclick="fetchSync()">↻</span>':"");
   }
 },30000);
 </script>
