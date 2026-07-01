@@ -92,7 +92,7 @@ function handleAddGrocery(sheet, incoming) {
     const norm = text.toLowerCase();
     if (existingNorm[norm]) return;
     existingNorm[norm] = true;
-    const item = { id: now + i, text: text, checked: false, source: "siri" };
+    const item = { id: now + i, text: text, checked: false, source: "siri", store: "either" };
     list.push(item);
     added.push(item);
   });
