@@ -141,12 +141,18 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
   background:var(--accent); border-color:var(--accent);
 }
 .pantry-item.stocked .pantry-checkmark svg, .grocery-item.checked .grocery-checkmark svg{opacity:1;transform:scale(1);}
-.pantry-text, .grocery-text{flex:1;font-size:14px;}
-.pantry-qty{font-family:'IBM Plex Mono',monospace;color:var(--muted);font-size:12px;margin-right:2px;}
+.pantry-text, .grocery-text{flex:1;min-width:0;font-size:14px;}
+.pantry-text{font-family:'IBM Plex Sans',sans-serif;color:var(--text);border:none;background:transparent;padding:3px 5px;border-radius:5px;outline:none;}
+.pantry-text:focus{background:var(--bg);box-shadow:0 0 0 1.5px var(--accent);font-style:normal;}
+.pantry-qty{font-family:'IBM Plex Mono',monospace;color:var(--muted);font-size:12px;width:66px;flex-shrink:0;border:none;background:transparent;padding:3px 5px;border-radius:5px;outline:none;text-align:right;}
+.pantry-qty:focus{background:var(--bg);box-shadow:0 0 0 1.5px var(--accent);color:var(--text);text-align:left;}
+.pantry-qty::placeholder{color:var(--border);}
 .pantry-out-badge{font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:var(--warn);background:var(--warn-bg);border:1px solid var(--warn-border);border-radius:6px;padding:2px 7px;flex-shrink:0;}
 .pantry-add-grocery{font-size:11px;font-weight:600;padding:4px 10px;border-radius:14px;border:1px solid var(--accent);background:var(--accent-light);color:var(--accent);cursor:pointer;flex-shrink:0;white-space:nowrap;}
 .pantry-add-grocery:disabled{opacity:0.6;cursor:default;border-color:var(--border);background:var(--bg);color:var(--muted);}
 .grocery-source{font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:2px 7px;flex-shrink:0;}
+.grocery-store-tag{font-family:'IBM Plex Sans',sans-serif;font-size:11px;font-weight:600;color:var(--accent);background:var(--accent-light);border:1px solid var(--accent);border-radius:14px;padding:3px 10px;flex-shrink:0;cursor:pointer;white-space:nowrap;transition:all 0.15s;}
+.grocery-store-tag:hover{filter:brightness(0.95);}
 .rm-btn{background:none;border:none;cursor:pointer;color:var(--muted);font-size:20px;line-height:1;padding:0 4px;flex-shrink:0;}
 .rm-btn:hover{color:var(--danger);}
 
@@ -420,7 +426,7 @@ const S={
   newQuick:{breakfast:"",lunch:""},
   mealPlan:null, loading:false, regenDay:null, generateError:"", expandedDay:null,
   dayInstructions:{},
-  groceryList:[], newGroceryItem:"",
+  groceryList:[], newGroceryItem:"", newGroceryStore:"grocery",
   settingsDraft:{geminiKey:"",scriptUrl:"",userName:"",promptWeek:"",promptDay:""},
   // Sync state
   scriptUrl:"", userName:"",
@@ -529,6 +535,10 @@ function addItem(){
   S.newItem={name:"",qty:"",category:S.newItem.category};
 }
 function removeItem(id){ setInv(S.inventory.filter(i=>i.id!==id)); }
+function updateInventoryItem(id,field,value){
+  const updated=S.inventory.map(i=>i.id===id?{...i,[field]:value}:i);
+  setAndSync("inventory", updated);
+}
 
 // An item counts as stocked unless explicitly marked false — this keeps
 // already-synced inventories (saved before this field existed) showing as
@@ -557,7 +567,7 @@ function addUnstockedToGrocery(){
     const norm=item.name.trim().toLowerCase();
     if(!norm||seen.has(norm)) return;
     seen.add(norm);
-    added.push({id:Date.now()+i, text:item.name.trim(), checked:false, source:"pantry"});
+    added.push({id:Date.now()+i, text:item.name.trim(), checked:false, source:"pantry", store:"either"});
   });
   if(!added.length) return;
   setAndSync("groceryList", [...S.groceryList, ...added]);
@@ -602,18 +612,32 @@ function removeQuickMeal(type,idx){
 }
 
 // Adds one item, deduped case-insensitively against existing items.
-function addGroceryItem(text, source){
+function addGroceryItem(text, source, store){
   const norm=text.trim().toLowerCase();
   if(!norm) return;
   if(S.groceryList.some(i=>i.text.trim().toLowerCase()===norm)) return;
-  const item={id:Date.now()+Math.random(), text:text.trim(), checked:false, source:source||"manual"};
+  const item={id:Date.now()+Math.random(), text:text.trim(), checked:false, source:source||"manual", store:store||"either"};
   setAndSync("groceryList", [...S.groceryList, item]);
 }
 function addGroceryFromInput(){
   const text=(S.newGroceryItem||"").trim();
   if(!text) return;
-  addGroceryItem(text,"manual");
+  addGroceryItem(text,"manual",S.newGroceryStore||"grocery");
   S.newGroceryItem="";
+  render();
+}
+function cycleGroceryStore(id){
+  const order=["grocery","costco","either"];
+  const updated=S.groceryList.map(i=>{
+    if(i.id!==id) return i;
+    const next=order[(order.indexOf(i.store||"either")+1)%order.length];
+    return {...i, store:next};
+  });
+  setAndSync("groceryList", updated);
+}
+function cycleNewGroceryStore(){
+  const order=["grocery","costco","either"];
+  S.newGroceryStore=order[(order.indexOf(S.newGroceryStore||"grocery")+1)%order.length];
   render();
 }
 function toggleGroceryChecked(id){
@@ -637,7 +661,7 @@ function importPlanGroceries(){
     const norm=String(t).trim().toLowerCase();
     if(!norm||seen.has(norm)) return;
     seen.add(norm);
-    added.push({id:Date.now()+i, text:String(t).trim(), checked:false, source:"plan"});
+    added.push({id:Date.now()+i, text:String(t).trim(), checked:false, source:"plan", store:"either"});
   });
   if(!added.length) return;
   setAndSync("groceryList", [...S.groceryList, ...added]);
@@ -887,8 +911,8 @@ function renderInventory(){
       +'<input type="checkbox" style="display:none" '+(stocked?"checked":"")+' onchange="toggleStocked('+item.id+')">'
             +'<span class="pantry-checkmark"><svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 8.5L6.5 12L13 4.5" stroke="white" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'
       +'</label>'
-      +'<span class="pantry-text">'+esc(item.name)+'</span>'
-      +(item.qty?'<span class="pantry-qty">'+esc(item.qty)+'</span>':"")
+      +'<input class="pantry-text" value="'+esc(item.name)+'" oninput="S.inventory=S.inventory.map(i=>i.id==='+item.id+'?{...i,name:this.value}:i)" onchange="updateInventoryItem('+item.id+',\'name\',this.value)">'
+      +'<input class="pantry-qty" placeholder="qty" value="'+esc(item.qty||"")+'" oninput="S.inventory=S.inventory.map(i=>i.id==='+item.id+'?{...i,qty:this.value}:i)" onchange="updateInventoryItem('+item.id+',\'qty\',this.value)">'
       +(!stocked?'<span class="pantry-out-badge">Out</span>':"")
       +(!stocked
         ?(inGrocery
@@ -1104,19 +1128,29 @@ function renderGrocery(){
   const unchecked=S.groceryList.filter(i=>!i.checked);
   const checked=S.groceryList.filter(i=>i.checked);
   const sourceLabel=s=>s==="siri"?"Siri":s==="plan"?"Meal Plan":s==="pantry"?"Pantry":"";
+  const storeLabel=s=>s==="costco"?"Costco":s==="grocery"?"Grocery":"Either";
 
   const itemRow=item=>
     '<div class="grocery-item'+(item.checked?" checked":"")+'">'
     +'<label class="grocery-check">'
     +'<input type="checkbox" style="display:none" '+(item.checked?"checked":"")+' onchange="toggleGroceryChecked('+item.id+')">'
-        +'<span class="grocery-checkmark"><svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 8.5L6.5 12L13 4.5" stroke="white" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'
+    +'<span class="grocery-checkmark"><svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 8.5L6.5 12L13 4.5" stroke="white" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'
     +'</label>'
     +'<span class="grocery-text">'+esc(item.text)+'</span>'
     +(sourceLabel(item.source)?'<span class="grocery-source">'+sourceLabel(item.source)+'</span>':"")
+    +(!item.checked?'<button class="grocery-store-tag" onclick="cycleGroceryStore('+item.id+')" title="Tap to change store">'+storeLabel(item.store)+'</button>':"")
     +'<button class="rm-btn" onclick="removeGroceryItem('+item.id+')">×</button>'
     +'</div>';
 
   const hasPlanItems=S.mealPlan?.shopping_list?.length>0;
+
+  const groceryItems=unchecked.filter(i=>(i.store||"either")!=="costco");
+  const costcoItems=unchecked.filter(i=>(i.store||"either")!=="grocery");
+
+  const storeSection=(label,items)=>items.length
+    ?'<div style="margin-bottom:18px"><div class="cat-label">'+label+' ('+items.length+')</div>'
+      +'<div class="grocery-list">'+items.map(itemRow).join("")+'</div></div>'
+    :"";
 
   return '<div class="content">'
     +'<div class="toolbar"><h2 class="section-title">Grocery List</h2>'
@@ -1126,11 +1160,12 @@ function renderGrocery(){
     +'<div class="card">'
     +'<div class="add-row">'
     +'<input class="fi" style="flex:1" placeholder="Add an item..." value="'+esc(S.newGroceryItem||"")+'" oninput="S.newGroceryItem=this.value" onkeydown="if(event.key===\'Enter\')addGroceryFromInput()">'
+    +'<button class="grocery-store-tag" onclick="cycleNewGroceryStore()" title="Tap to change store" style="flex-shrink:0">'+storeLabel(S.newGroceryStore)+'</button>'
     +'<button class="btn btn-primary" onclick="addGroceryFromInput()">+ Add</button>'
     +'</div>'
     +(hasPlanItems?'<button class="btn btn-secondary" style="font-size:13px;margin-bottom:16px" onclick="importPlanGroceries()">↓ Add items from meal plan</button>':"")
     +(unchecked.length
-      ?'<div class="grocery-list">'+unchecked.map(itemRow).join("")+'</div>'
+      ?storeSection("🏪 Grocery Store",groceryItems)+storeSection("📦 Costco",costcoItems)
       :'<div class="empty-state"><div class="icon">🛒</div><div>Your grocery list is empty. Add items above'+(S.scriptUrl?' or by voice.':'.')+'</div></div>')
     +(checked.length
       ?'<div style="margin-top:20px">'
@@ -1143,6 +1178,7 @@ function renderGrocery(){
       :"")
     +'</div></div>';
 }
+
 
 function renderSettings(){
   if(!S.showSettings)return "";
