@@ -186,6 +186,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .pantry-out-badge{font-size:10px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:#9a5a10;background:#fff8f0;border:1px solid #f0c090;border-radius:6px;padding:2px 7px;flex-shrink:0;}
 .pantry-add-grocery{font-size:11px;font-weight:500;padding:4px 10px;border-radius:14px;border:1px solid var(--accent);background:var(--accent-light);color:var(--accent);cursor:pointer;flex-shrink:0;white-space:nowrap;}
 .pantry-add-grocery:disabled{opacity:0.6;cursor:default;border-color:var(--border);background:var(--bg);color:var(--muted);}
+.tabbar{display:flex;background:var(--surface);border-bottom:1px solid var(--border);}
+.tab-item{flex:1;text-align:center;padding:13px 8px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all 0.15s;}
+.tab-item.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600;}
+.tab-item:hover{color:var(--text);}
+.day-card.hero-day{border:1.5px solid var(--accent);box-shadow:0 4px 20px rgba(192,98,42,0.08);}
+.day-card.hero-day .day-name{font-size:21px;}
 </style>
 </head>
 <body>
@@ -309,7 +315,7 @@ function householdNutritionSummary(){
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const S={
-  step:1, showSettings:false,
+  view:"plan", showSettings:false, showPreferences:false,
   inventory:[], newItem:{name:"",qty:"",category:"Produce"},
   dietPrefs:[],
   household:[
@@ -324,7 +330,7 @@ const S={
   quickMeals:{breakfast:["Oatmeal","Greek yogurt + fruit","Eggs on toast"],lunch:["Leftover rice bowl","Tuna sandwich","Soup + bread"]},
   newQuick:{breakfast:"",lunch:""},
   mealPlan:null, loading:false, regenDay:null, generateError:"", expandedDay:null,
-  groceryList:[], showGrocery:false, newGroceryItem:"",
+  groceryList:[], newGroceryItem:"",
   settingsDraft:{geminiKey:"",scriptUrl:"",userName:"",promptWeek:"",promptDay:""},
   // Sync state
   scriptUrl:"", userName:"",
@@ -353,7 +359,7 @@ function loadAll(){
   S.scriptUrl   = ls("scriptUrl") || "";
   S.userName    = ls("userName") || "";
   S.settingsDraft = {geminiKey:ls("geminiKey")||"", scriptUrl:S.scriptUrl, userName:S.userName, promptWeek:S.promptWeek, promptDay:S.promptDay};
-  if(S.mealPlan) S.step=3;
+
 }
 
 function geminiKey(){ return ls("geminiKey")||""; }
@@ -385,7 +391,7 @@ async function fetchSync(){
         ls(k,data[k]);
       }
     });
-    if(S.mealPlan && S.step!==3) S.step=3;
+
     S.lastSynced=new Date().toISOString();
   }catch(e){ S.syncError="Sync failed: "+e.message; }
   S.syncing=false; render();
@@ -500,8 +506,6 @@ function removeQuickMeal(type,idx){
   const updated={...S.quickMeals,[type]:S.quickMeals[type].filter((_,i)=>i!==idx)};
   setAndSync("quickMeals",updated);
 }
-
-function toggleGrocery(){ S.showGrocery=!S.showGrocery; render(); }
 
 // Adds one item, deduped case-insensitively against existing items.
 function addGroceryItem(text, source){
@@ -701,7 +705,7 @@ async function generatePlan(){
     });
     S.mealPlan={days:allDays,shopping_list:shopping};
     setAndSync("mealPlan",S.mealPlan);
-    S.step=3;
+    S.view="plan";
   }catch(e){S.generateError="Error: "+e.message;}
   S.loading=false; render();
 }
@@ -727,7 +731,7 @@ function renderHeader(){
   return '<div class="header">'
     +'<div class="header-row"><h1>Pantry <em>Planner</em></h1>'
     +'<div style="display:flex;gap:8px">'
-    +'<button class="settings-btn" onclick="toggleGrocery()">'+(S.showGrocery?"← Back":"🛒 Grocery"+(S.groceryList.filter(g=>!g.checked).length?" ("+S.groceryList.filter(g=>!g.checked).length+")":""))+'</button>'
+    +'<button class="settings-btn" onclick="S.showPreferences=true;render()">🍽 Preferences</button>'
     +'<button class="settings-btn" onclick="S.showSettings=true;S.settingsDraft={geminiKey:ls(\'geminiKey\')||\'\'  ,scriptUrl:S.scriptUrl,userName:S.userName,promptWeek:S.promptWeek,promptDay:S.promptDay};render()">⚙ Settings</button>'
     +'</div></div>'
     +'<div class="header-meta">'
@@ -736,17 +740,38 @@ function renderHeader(){
     +'</div></div>';
 }
 
-function goToStep(n){ S.step=n; S.showGrocery=false; render(); }
-function renderStepper(){
-  return '<div class="stepper">'+[{n:1,l:"Inventory"},{n:2,l:"Preferences"},{n:3,l:"Meal Plan"}].map((s,i)=>{
-    const c=S.step===s.n?"active":S.step>s.n?"done":"inactive";
-    const clickable=s.n!==S.step&&(s.n!==3||!!S.mealPlan)&&!S.loading;
-    const attrs=clickable?'onclick="goToStep('+s.n+')" style="cursor:pointer"':"";
-    return '<div class="step-item" '+attrs+'>'
-      +'<div class="step-circle '+c+'">'+( S.step>s.n?"✓":s.n)+'</div>'
-      +'<span class="step-label '+c+'">'+(clickable?'<span style="border-bottom:1px dashed currentColor">':'')+s.l+(clickable?'</span>':'')+'</span>'
-      +'</div>'+(i<2?'<div class="step-connector"></div>':"");
-  }).join("")+'</div>';
+function setView(v){ S.view=v; render(); }
+
+function todayDayName(){
+  return new Date().toLocaleDateString("en-US",{weekday:"long"});
+}
+
+// Compact "here's what's configured" line shown on the Meal Plan tab, with
+// a direct link into the Preferences modal instead of a forced wizard step.
+function renderPrefsSummary(){
+  const adults=S.household.filter(m=>m.type==="adult").length;
+  const kids=S.household.filter(m=>["child","toddler","infant"].includes(m.type)).length;
+  const parts=[];
+  parts.push(adults+(adults===1?" adult":" adults")+(kids?", "+kids+(kids===1?" kid":" kids"):""));
+  if(S.dietPrefs.length) parts.push(S.dietPrefs.map(p=>DIET_OPTIONS.find(o=>o.id===p)?.label).join(", "));
+  if(S.avoid.trim()) parts.push("avoiding "+S.avoid.trim());
+  if(S.fixedMeals.length) parts.push(S.fixedMeals.length+(S.fixedMeals.length===1?" fixed meal":" fixed meals"));
+  return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--muted);flex-wrap:wrap">'
+    +'<span>'+esc(parts.join(" · "))+'</span>'
+    +'<button style="background:none;border:none;color:var(--accent);font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0" onclick="S.showPreferences=true;render()">Edit</button>'
+    +'</div>';
+}
+
+function renderTabs(){
+  const groceryCount=S.groceryList.filter(g=>!g.checked).length;
+  const tabs=[
+    {v:"plan", l:"Meal Plan"},
+    {v:"inventory", l:"Inventory"},
+    {v:"grocery", l:"Grocery"+(groceryCount?" ("+groceryCount+")":"")},
+  ];
+  return '<div class="tabbar">'+tabs.map(t=>
+    '<div class="tab-item'+(S.view===t.v?" active":"")+'" onclick="setView(\''+t.v+'\')">'+t.l+'</div>'
+  ).join("")+'</div>';
 }
 
 function renderInventory(){
@@ -799,12 +824,11 @@ function renderInventory(){
     +'</div>'
     +(S.inventory.length===0?'<div class="empty-state"><div class="icon">🫙</div><div>Add your first item, or continue and the AI will assume a well-stocked kitchen.</div></div>':groups)
     +'</div>'
-    +'<div class="nav-row desktop-nav"><div></div><button class="btn btn-primary btn-lg" onclick="S.step=2;render()">Next: Preferences →</button></div>'
-    +'<div class="mobile-nav"><button class="btn btn-primary" onclick="S.step=2;render()">Next: Preferences →</button></div>'
     +'</div>';
 }
 
-function renderPreferences(){
+function renderPreferencesModal(){
+  if(!S.showPreferences) return "";
   const dietHtml=DIET_OPTIONS.map(o=>{
     const active=S.dietPrefs.includes(o.id);
     return '<div class="diet-toggle'+(active?" active":"")+'" onclick="togglePref(\''+o.id+'\')">'
@@ -836,10 +860,10 @@ function renderPreferences(){
     +'<button class="btn btn-secondary" style="font-size:13px;padding:6px 14px" onclick="S.showFixedForm=false;render()">Cancel</button>'
     +'<button class="btn btn-primary" style="font-size:13px;padding:6px 14px" onclick="addFixedMeal()">Add</button>'
     +'</div></div>':"";
-  const noKey=!geminiKey()?'<div class="warn-banner">⚠️ No Gemini API key — tap ⚙ Settings before generating.</div>':"";
-  return '<div class="content">'
-    +'<h2 class="section-title">Preferences</h2>'
-    +'<p class="section-desc">Changes sync to both devices automatically.</p>'
+  return '<div class="overlay" onclick="if(event.target===this){S.showPreferences=false;render()}">'
+    +'<div class="settings-panel">'
+    +'<div class="settings-title">🍽 Preferences</div>'
+    +'<p class="settings-desc">Changes sync to both devices automatically.</p>'
     +'<div class="pref-section"><div class="sub-label">Dietary</div><div class="diet-grid">'+dietHtml+'</div></div>'
     +'<div class="pref-section"><div class="sub-label">Household Members</div>'
     +membersHtml
@@ -852,16 +876,8 @@ function renderPreferences(){
     +'<button class="btn btn-secondary" style="font-size:13px;padding:6px 12px" onclick="S.showFixedForm=!S.showFixedForm;render()">+ Add</button></div>'
     +(S.fixedMeals.length===0&&!S.showFixedForm?'<div style="font-size:13px;color:var(--muted);font-style:italic;padding:8px 0">No fixed meals yet</div>':"")
     +fixedHtml+fixedForm+'</div>'
-    +noKey
-    +'<div class="nav-row desktop-nav">'
-    +'<button class="btn btn-secondary" onclick="S.step=1;render()">← Back</button>'
-    +'<button class="btn btn-primary btn-lg" onclick="generatePlan()" '+(S.loading?"disabled":"")+'>'+( S.loading?dots()+" Generating…":"✨ Generate Meal Plan")+'</button>'
-    +'</div>'
-    +'<div class="mobile-nav">'
-    +'<button class="btn btn-secondary" onclick="S.step=1;render()">← Back</button>'
-    +'<button class="btn btn-primary" onclick="generatePlan()" '+(S.loading?"disabled":"")+'>'+( S.loading?dots()+" Generating…":"✨ Generate Meal Plan")+'</button>'
-    +'</div>'
-    +'</div>';
+    +'<div class="settings-actions"><button class="btn btn-primary" onclick="S.showPreferences=false;render()">Done</button></div>'
+    +'</div></div>';
 }
 
 function renderMealCard(meal){
@@ -912,45 +928,64 @@ function renderQuickMeals(){
     +sections+'</div>';
 }
 
-function renderMealPlan(){
-  const kids=S.household.filter(m=>["child","toddler","infant"].includes(m.type)).length;
-  const meta=(S.dietPrefs.length?S.dietPrefs.map(p=>DIET_OPTIONS.find(o=>o.id===p)?.label).join(", ")+" · ":"")
-    +S.household.length+" people · "+kids+" kids";
-  const daysHtml=S.mealPlan.days.map(dayData=>{
-    const open=S.expandedDay===dayData.day;
-    const dinner=dayData.dinner||(dayData.meals?.dinner);
-    const isRegen=S.regenDay===dayData.day;
-    return '<div class="day-card">'
-      +'<div class="day-header" onclick="toggleDay(\''+dayData.day+'\')">'
-      +'<span class="day-name">'+dayData.day+'</span>'
-      +'<div style="display:flex;align-items:center;gap:8px">'
-      +(isRegen?'<span style="font-size:12px;color:var(--muted)">Regenerating…</span>'
-        :(dinner?'<span class="meal-badge">'+esc(dinner.name)+'</span>':"'"))
-      +'<button style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:12px;cursor:pointer;color:var(--muted)" '
-      +'onclick="event.stopPropagation();regenSingleDay(\''+dayData.day+'\')" '
-      +(isRegen?'disabled ':'')+'>↻</button>'
-      +'<span class="chevron'+(open?" open":"")+'">▼</span></div></div>'
-      +'<div class="day-meals'+(open?" open":"")+'"><div class="meal-row">'
-      +'<div class="meal-type">Dinner</div>'
-      +renderMealCard(dinner)
-      +'</div></div></div>';
-  }).join("");
+function renderDayCard(dayData, isHero){
+  const open=isHero||S.expandedDay===dayData.day;
+  const dinner=dayData.dinner||(dayData.meals?.dinner);
+  const isRegen=S.regenDay===dayData.day;
+  return '<div class="day-card'+(isHero?" hero-day":"")+'">'
+    +'<div class="day-header"'+(isHero?"":' onclick="toggleDay(\''+dayData.day+'\')"')+'>'
+    +'<span class="day-name">'+(isHero?"Today · ":"")+dayData.day+'</span>'
+    +'<div style="display:flex;align-items:center;gap:8px">'
+    +(isRegen?'<span style="font-size:12px;color:var(--muted)">Regenerating…</span>'
+      :(dinner&&!isHero?'<span class="meal-badge">'+esc(dinner.name)+'</span>':""))
+    +'<button style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:12px;cursor:pointer;color:var(--muted)" '
+    +'onclick="event.stopPropagation();regenSingleDay(\''+dayData.day+'\')" '
+    +(isRegen?'disabled ':'')+'>↻</button>'
+    +(isHero?"":'<span class="chevron'+(open?" open":"")+'">▼</span>')
+    +'</div></div>'
+    +'<div class="day-meals'+(open?" open":"")+'"><div class="meal-row">'
+    +'<div class="meal-type">Dinner</div>'
+    +renderMealCard(dinner)
+    +'</div></div></div>';
+}
+
+function renderPlanTab(){
+  const noKey=!geminiKey();
+  const summary=renderPrefsSummary();
+  const warn=noKey?'<div class="warn-banner">⚠️ No Gemini API key — tap ⚙ Settings before generating.</div>':"";
+
+  if(!S.mealPlan){
+    return '<div class="content">'
+      +summary+warn
+      +'<div class="card" style="text-align:center;padding:40px 24px">'
+      +'<div style="font-size:36px;margin-bottom:10px">🍽️</div>'
+      +'<div class="section-title" style="margin-bottom:6px">No meal plan yet</div>'
+      +'<p class="section-desc" style="margin-bottom:20px">Generate a week of fast, family-friendly dinners based on your pantry and preferences.</p>'
+      +'<button class="btn btn-primary btn-lg" onclick="generatePlan()" '+(S.loading?"disabled":"")+'>'+( S.loading?dots()+" Generating…":"✨ Generate Meal Plan")+'</button>'
+      +'</div></div>';
+  }
+
+  const today=todayDayName();
+  const todayData=S.mealPlan.days.find(d=>d.day===today);
+  const restDays=S.mealPlan.days.filter(d=>d.day!==today);
+
+  const heroHtml=todayData?renderDayCard(todayData,true):"";
+  const restHtml=restDays.map(d=>renderDayCard(d,false)).join("");
+
   const shopping=S.mealPlan.shopping_list?.length
     ?'<div class="shopping-card"><div class="shopping-title">🛒 Shopping List</div><div class="shopping-grid">'
       +S.mealPlan.shopping_list.map(i=>'<span class="shop-item">'+esc(i)+'</span>').join("")
       +'</div></div>':"";
+
   return '<div class="content">'
-    +'<div class="plan-header"><div><h2 class="section-title">This Week\'s Dinners</h2>'
-    +'<p class="section-desc">'+meta+' · <span style="color:#9a5a10">🛒 = needs shopping</span></p></div>'
-    +'<div class="desktop-nav" style="gap:10px">'
-    +'<button class="btn btn-secondary" onclick="S.step=2;render()">← Adjust</button>'
-    +'<button class="btn btn-primary" onclick="generatePlan()">↻ Regenerate</button>'
-    +'</div></div>'
-    +'<div class="mobile-nav">'
-    +'<button class="btn btn-secondary" onclick="S.step=2;render()">← Adjust</button>'
-    +'<button class="btn btn-primary" onclick="generatePlan()">↻ Regenerate</button>'
+    +summary+warn
+    +'<p class="section-desc" style="margin-top:-8px;margin-bottom:16px;font-size:12px">🛒 = needs shopping</p>'
+    +(heroHtml?'<div class="cat-label">Today</div>'+heroHtml:"")
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin:24px 0 10px">'
+    +'<h2 class="section-title" style="margin-bottom:0">This Week</h2>'
+    +'<button class="btn btn-secondary" style="font-size:13px" onclick="generatePlan()">↻ Regenerate week</button>'
     +'</div>'
-    +daysHtml+shopping
+    +restHtml+shopping
     +renderQuickMeals()
     +'</div>';
 }
@@ -1051,19 +1086,18 @@ function render(){
   }
   S._pendingRender=false;
   const scrollY = window.scrollY;
-  let html=renderHeader()+renderStepper()+renderError();
+  let html=renderHeader()+renderTabs()+renderError();
   if(S.loading){
     html+='<div class="loading-wrap"><div class="ltitle">Crafting your week…</div><p>Planning 7 days of meals around your pantry.</p>'+dots()+'</div>';
-  } else if(S.showGrocery){
-    html+=renderGrocery();
-  } else if(S.step===1){
+  } else if(S.view==="inventory"){
     html+=renderInventory();
-  } else if(S.step===2){
-    html+=renderPreferences();
-  } else if(S.step===3&&S.mealPlan){
-    html+=renderMealPlan();
+  } else if(S.view==="grocery"){
+    html+=renderGrocery();
+  } else {
+    html+=renderPlanTab();
   }
   html+=renderSettings();
+  html+=renderPreferencesModal();
   document.getElementById("app").innerHTML=html;
   window.scrollTo(0, scrollY);
 }
