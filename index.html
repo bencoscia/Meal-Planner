@@ -165,6 +165,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   .mobile-nav{display:none;}
   .desktop-nav{display:flex;}
 }
+.grocery-list{display:flex;flex-direction:column;gap:2px;}
+.grocery-item{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--border);}
+.grocery-item:last-child{border-bottom:none;}
+.grocery-item.checked .grocery-text{text-decoration:line-through;color:var(--muted);}
+.grocery-check{display:inline-flex;cursor:pointer;flex-shrink:0;}
+.grocery-checkmark{width:20px;height:20px;border:2px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px;color:white;background:var(--surface);}
+.grocery-item.checked .grocery-checkmark{background:var(--text);border-color:var(--text);}
+.grocery-text{flex:1;font-size:14px;}
+.grocery-source{font-size:10px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:2px 7px;flex-shrink:0;}
 </style>
 </head>
 <body>
@@ -303,6 +312,7 @@ const S={
   quickMeals:{breakfast:["Oatmeal","Greek yogurt + fruit","Eggs on toast"],lunch:["Leftover rice bowl","Tuna sandwich","Soup + bread"]},
   newQuick:{breakfast:"",lunch:""},
   mealPlan:null, loading:false, regenDay:null, generateError:"", expandedDay:null,
+  groceryList:[], showGrocery:false, newGroceryItem:"",
   settingsDraft:{geminiKey:"",scriptUrl:"",userName:"",promptWeek:"",promptDay:""},
   // Sync state
   scriptUrl:"", userName:"",
@@ -315,7 +325,7 @@ function ls(k,v){
   try{if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,JSON.stringify(v));}catch(e){}
 }
 
-const SYNC_KEYS=["inventory","dietPrefs","household","avoid","fixedMeals","mealPlan","quickMeals","promptWeek","promptDay"];
+const SYNC_KEYS=["inventory","dietPrefs","household","avoid","fixedMeals","mealPlan","quickMeals","promptWeek","promptDay","groceryList"];
 
 function loadAll(){
   S.inventory   = ls("inventory") || SEED;
@@ -325,6 +335,7 @@ function loadAll(){
   S.fixedMeals  = ls("fixedMeals") || S.fixedMeals;
   S.mealPlan    = ls("mealPlan") || null;
   S.quickMeals  = ls("quickMeals") || S.quickMeals;
+  S.groceryList = ls("groceryList") || [];
   S.promptWeek  = ls("promptWeek") || DEFAULT_PROMPT_WEEK;
   S.promptDay   = ls("promptDay") || DEFAULT_PROMPT_DAY;
   S.scriptUrl   = ls("scriptUrl") || "";
@@ -445,6 +456,50 @@ function removeQuickMeal(type,idx){
   setAndSync("quickMeals",updated);
 }
 
+function toggleGrocery(){ S.showGrocery=!S.showGrocery; render(); }
+
+// Adds one item, deduped case-insensitively against existing items.
+function addGroceryItem(text, source){
+  const norm=text.trim().toLowerCase();
+  if(!norm) return;
+  if(S.groceryList.some(i=>i.text.trim().toLowerCase()===norm)) return;
+  const item={id:Date.now()+Math.random(), text:text.trim(), checked:false, source:source||"manual"};
+  setAndSync("groceryList", [...S.groceryList, item]);
+}
+function addGroceryFromInput(){
+  const text=(S.newGroceryItem||"").trim();
+  if(!text) return;
+  addGroceryItem(text,"manual");
+  S.newGroceryItem="";
+  render();
+}
+function toggleGroceryChecked(id){
+  const updated=S.groceryList.map(i=>i.id===id?{...i,checked:!i.checked}:i);
+  setAndSync("groceryList", updated);
+}
+function removeGroceryItem(id){
+  setAndSync("groceryList", S.groceryList.filter(i=>i.id!==id));
+}
+function clearCheckedGroceries(){
+  setAndSync("groceryList", S.groceryList.filter(i=>!i.checked));
+}
+// Pulls the AI-generated shopping list from the current meal plan into the
+// grocery list, skipping anything already present (case-insensitive).
+function importPlanGroceries(){
+  const list=S.mealPlan?.shopping_list;
+  if(!list||!list.length) return;
+  const seen=new Set(S.groceryList.map(i=>i.text.trim().toLowerCase()));
+  const added=[];
+  list.forEach((t,i)=>{
+    const norm=String(t).trim().toLowerCase();
+    if(!norm||seen.has(norm)) return;
+    seen.add(norm);
+    added.push({id:Date.now()+i, text:String(t).trim(), checked:false, source:"plan"});
+  });
+  if(!added.length) return;
+  setAndSync("groceryList", [...S.groceryList, ...added]);
+}
+
 function resetHousehold(){
   const defaults=[
     {id:1,name:"Adult 1",type:"adult",age:"",sex:"male",height:"5'10",weight:"170",unit:"imperial",activity:"moderate",goal:"maintain"},
@@ -523,6 +578,23 @@ async function regenSingleDay(day){
   S.regenDay=null; render();
 }
 
+// ── JSON Cleaner ─────────────────────────────────────────────────────────────
+function cleanJson(text){
+  let s=text.replace(/```json|```/g,"").trim();
+  const start=s.indexOf('{'), end=s.lastIndexOf('}');
+  if(start!==-1&&end!==-1) s=s.slice(start,end+1);
+  s=s.replace(/\\n/g,' ').replace(/\\t/g,' ').replace(/\\r/g,' ');
+  s=s.replace(/[\x00-\x1F\x7F]/g,' ');
+  s=s.replace(/,\s*([}\]])/g,'$1');
+  s=s.replace(/"\s+"/g,'", "');
+  try{
+    return JSON.parse(s);
+  }catch(e){
+    console.error("JSON parse failed:", e.message, "\nRaw:", s.slice(0,300));
+    throw new Error("Could not parse AI response. Please try regenerating.");
+  }
+}
+
 // ── Generate Plan ─────────────────────────────────────────────────────────────
 async function callGemini(key,prompt){
   const res=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key="+key,{
@@ -566,30 +638,6 @@ async function generatePlan(){
       .replace(/\{CONTEXT\}/g, ctx);
   };
 
-  function cleanJson(text){
-    let s=text.replace(/```json|```/g,"").trim();
-    // Extract first JSON object
-    const start=s.indexOf('{'), end=s.lastIndexOf('}');
-    if(start!==-1&&end!==-1) s=s.slice(start,end+1);
-    // Replace literal \n \t \r with space
-    s=s.replace(/\\n/g,' ').replace(/\\t/g,' ').replace(/\\r/g,' ');
-    // Remove actual control characters
-    s=s.replace(/[\x00-\x1F\x7F]/g,' ');
-    // Fix trailing commas before } or ]
-    s=s.replace(/,\s*([}\]])/g,'$1');
-    // Fix missing commas between array elements: "text" "text" -> "text", "text"
-    s=s.replace(/"\s+"/g,'", "');
-    // Fix single quotes used instead of double quotes (Gemini occasionally does this)
-    // Only safe to do for keys, not values - skip for now
-    try{
-      return JSON.parse(s);
-    }catch(e){
-      // Last resort: try to extract just the days array and rebuild
-      console.error("JSON parse failed:", e.message, "\nRaw:", s.slice(0,300));
-      throw new Error("Could not parse AI response. Please try regenerating.");
-    }
-  }
-
   try{
     const [res1,res2]=await Promise.all([
       callGemini(key,makePrompt(["Monday","Tuesday","Wednesday","Thursday"])),
@@ -631,18 +679,26 @@ function renderHeader(){
     :"Connected";
   return '<div class="header">'
     +'<div class="header-row"><h1>Pantry <em>Planner</em></h1>'
-    +'<button class="settings-btn" onclick="S.showSettings=true;S.settingsDraft={geminiKey:ls(\'geminiKey\')||\'\'  ,scriptUrl:S.scriptUrl,userName:S.userName,promptWeek:S.promptWeek,promptDay:S.promptDay};render()">⚙ Settings</button></div>'
+    +'<div style="display:flex;gap:8px">'
+    +'<button class="settings-btn" onclick="toggleGrocery()">'+(S.showGrocery?"← Back":"🛒 Grocery"+(S.groceryList.filter(g=>!g.checked).length?" ("+S.groceryList.filter(g=>!g.checked).length+")":""))+'</button>'
+    +'<button class="settings-btn" onclick="S.showSettings=true;S.settingsDraft={geminiKey:ls(\'geminiKey\')||\'\'  ,scriptUrl:S.scriptUrl,userName:S.userName,promptWeek:S.promptWeek,promptDay:S.promptDay};render()">⚙ Settings</button>'
+    +'</div></div>'
     +'<div class="header-meta">'
     +'<span class="sdot '+dotCls+'"></span><span style="color:#b8a898">'+syncMsg+'</span>'
     +(configured&&!S.syncing?'<span style="cursor:pointer;color:#b8a898" onclick="fetchSync()">↻</span>':"")
     +'</div></div>';
 }
 
+function goToStep(n){ S.step=n; S.showGrocery=false; render(); }
 function renderStepper(){
   return '<div class="stepper">'+[{n:1,l:"Inventory"},{n:2,l:"Preferences"},{n:3,l:"Meal Plan"}].map((s,i)=>{
     const c=S.step===s.n?"active":S.step>s.n?"done":"inactive";
-    return '<div class="step-item"><div class="step-circle '+c+'">'+(S.step>s.n?"✓":s.n)+'</div>'
-      +'<span class="step-label '+c+'">'+s.l+'</span></div>'+(i<2?'<div class="step-connector"></div>':"");
+    const clickable=s.n!==S.step&&(s.n!==3||!!S.mealPlan)&&!S.loading;
+    const attrs=clickable?'onclick="goToStep('+s.n+')" style="cursor:pointer"':"";
+    return '<div class="step-item" '+attrs+'>'
+      +'<div class="step-circle '+c+'">'+( S.step>s.n?"✓":s.n)+'</div>'
+      +'<span class="step-label '+c+'">'+(clickable?'<span style="border-bottom:1px dashed currentColor">':'')+s.l+(clickable?'</span>':'')+'</span>'
+      +'</div>'+(i<2?'<div class="step-connector"></div>':"");
   }).join("")+'</div>';
 }
 
@@ -828,6 +884,50 @@ function renderMealPlan(){
     +'</div>';
 }
 
+function renderGrocery(){
+  const unchecked=S.groceryList.filter(i=>!i.checked);
+  const checked=S.groceryList.filter(i=>i.checked);
+  const sourceLabel=s=>s==="siri"?"Siri":s==="plan"?"Meal Plan":"";
+
+  const itemRow=item=>
+    '<div class="grocery-item'+(item.checked?" checked":"")+'">'
+    +'<label class="grocery-check">'
+    +'<input type="checkbox" style="display:none" '+(item.checked?"checked":"")+' onchange="toggleGroceryChecked('+item.id+')">'
+    +'<span class="grocery-checkmark">'+(item.checked?"✓":"")+'</span>'
+    +'</label>'
+    +'<span class="grocery-text">'+esc(item.text)+'</span>'
+    +(sourceLabel(item.source)?'<span class="grocery-source">'+sourceLabel(item.source)+'</span>':"")
+    +'<button class="rm-btn" onclick="removeGroceryItem('+item.id+')">×</button>'
+    +'</div>';
+
+  const hasPlanItems=S.mealPlan?.shopping_list?.length>0;
+
+  return '<div class="content">'
+    +'<div class="toolbar"><h2 class="section-title">Grocery List</h2>'
+    +(S.groceryList.length?'<span class="inv-count">'+unchecked.length+' to get</span>':"")
+    +'</div>'
+    +'<p class="section-desc">Synced with your household'+(S.scriptUrl?' — say "Hey Siri, Groceries" to add by voice.':'.')+'</p>'
+    +'<div class="card">'
+    +'<div class="add-row">'
+    +'<input class="fi" style="flex:1" placeholder="Add an item..." value="'+esc(S.newGroceryItem||"")+'" oninput="S.newGroceryItem=this.value" onkeydown="if(event.key===\'Enter\')addGroceryFromInput()">'
+    +'<button class="btn btn-primary" onclick="addGroceryFromInput()">+ Add</button>'
+    +'</div>'
+    +(hasPlanItems?'<button class="btn btn-secondary" style="font-size:13px;margin-bottom:16px" onclick="importPlanGroceries()">↓ Add items from meal plan</button>':"")
+    +(unchecked.length
+      ?'<div class="grocery-list">'+unchecked.map(itemRow).join("")+'</div>'
+      :'<div class="empty-state"><div class="icon">🛒</div><div>Your grocery list is empty. Add items above'+(S.scriptUrl?' or by voice.':'.')+'</div></div>')
+    +(checked.length
+      ?'<div style="margin-top:20px">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+        +'<div class="cat-label">Checked off ('+checked.length+')</div>'
+        +'<button class="btn btn-secondary" style="font-size:12px;padding:5px 11px" onclick="clearCheckedGroceries()">Clear checked</button>'
+        +'</div>'
+        +'<div class="grocery-list">'+checked.map(itemRow).join("")+'</div>'
+        +'</div>'
+      :"")
+    +'</div></div>';
+}
+
 function renderSettings(){
   if(!S.showSettings)return "";
   return '<div class="overlay" onclick="if(event.target===this){S.showSettings=false;render()}">'
@@ -883,6 +983,8 @@ function render(){
   let html=renderHeader()+renderStepper()+renderError();
   if(S.loading){
     html+='<div class="loading-wrap"><div class="ltitle">Crafting your week…</div><p>Planning 7 days of meals around your pantry.</p>'+dots()+'</div>';
+  } else if(S.showGrocery){
+    html+=renderGrocery();
   } else if(S.step===1){
     html+=renderInventory();
   } else if(S.step===2){
