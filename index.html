@@ -174,6 +174,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .grocery-item.checked .grocery-checkmark{background:var(--text);border-color:var(--text);}
 .grocery-text{flex:1;font-size:14px;}
 .grocery-source{font-size:10px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:2px 7px;flex-shrink:0;}
+.pantry-list{display:flex;flex-direction:column;gap:2px;margin-bottom:4px;}
+.pantry-item{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--border);}
+.pantry-item:last-child{border-bottom:none;}
+.pantry-check{display:inline-flex;cursor:pointer;flex-shrink:0;}
+.pantry-checkmark{width:20px;height:20px;border:2px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px;color:white;background:var(--surface);}
+.pantry-item.stocked .pantry-checkmark{background:var(--text);border-color:var(--text);}
+.pantry-text{flex:1;font-size:14px;}
+.pantry-item:not(.stocked) .pantry-text{font-style:italic;color:var(--muted);}
+.pantry-qty{color:var(--muted);font-size:12px;margin-right:2px;}
+.pantry-out-badge{font-size:10px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:#9a5a10;background:#fff8f0;border:1px solid #f0c090;border-radius:6px;padding:2px 7px;flex-shrink:0;}
+.pantry-add-grocery{font-size:11px;font-weight:500;padding:4px 10px;border-radius:14px;border:1px solid var(--accent);background:var(--accent-light);color:var(--accent);cursor:pointer;flex-shrink:0;white-space:nowrap;}
+.pantry-add-grocery:disabled{opacity:0.6;cursor:default;border-color:var(--border);background:var(--bg);color:var(--muted);}
 </style>
 </head>
 <body>
@@ -413,10 +425,43 @@ function setAndSync(key,value){
 function setInv(items){ setAndSync("inventory",items); }
 function addItem(){
   const name=S.newItem.name.trim(); if(!name)return;
-  setInv([...S.inventory,{id:Date.now(),name,qty:S.newItem.qty,category:S.newItem.category}]);
+  setInv([...S.inventory,{id:Date.now(),name,qty:S.newItem.qty,category:S.newItem.category,stocked:true}]);
   S.newItem={name:"",qty:"",category:S.newItem.category};
 }
 function removeItem(id){ setInv(S.inventory.filter(i=>i.id!==id)); }
+
+// An item counts as stocked unless explicitly marked false — this keeps
+// already-synced inventories (saved before this field existed) showing as
+// stocked by default instead of suddenly appearing all "out of stock".
+function isStocked(item){ return item.stocked!==false; }
+
+function toggleStocked(id){
+  const updated=S.inventory.map(i=>i.id===id?{...i, stocked: !isStocked(i)}:i);
+  setAndSync("inventory", updated);
+}
+
+function addInventoryItemToGrocery(id){
+  const item=S.inventory.find(i=>i.id===id);
+  if(!item) return;
+  addGroceryItem(item.name, "pantry");
+}
+
+// Bulk-adds every currently unstocked pantry item to the grocery list,
+// deduped against what's already there.
+function addUnstockedToGrocery(){
+  const unstocked=S.inventory.filter(i=>!isStocked(i));
+  if(!unstocked.length) return;
+  const seen=new Set(S.groceryList.map(g=>g.text.trim().toLowerCase()));
+  const added=[];
+  unstocked.forEach((item,i)=>{
+    const norm=item.name.trim().toLowerCase();
+    if(!norm||seen.has(norm)) return;
+    seen.add(norm);
+    added.push({id:Date.now()+i, text:item.name.trim(), checked:false, source:"pantry"});
+  });
+  if(!added.length) return;
+  setAndSync("groceryList", [...S.groceryList, ...added]);
+}
 
 function togglePref(id){
   const updated=S.dietPrefs.includes(id)?S.dietPrefs.filter(p=>p!==id):[...S.dietPrefs,id];
@@ -532,8 +577,9 @@ async function regenSingleDay(day){
   if(!key){S.generateError="No Gemini API key — tap ⚙ Settings.";render();return;}
   S.regenDay=day; S.generateError=""; render();
 
-  const inv=S.inventory.length
-    ?S.inventory.map(i=>i.name+(i.qty?" ("+i.qty+")":"")+" ["+i.category+"]").join(", ")
+  const stockedItems=S.inventory.filter(isStocked);
+  const inv=stockedItems.length
+    ?stockedItems.map(i=>i.name+(i.qty?" ("+i.qty+")":"")+" ["+i.category+"]").join(", ")
     :"No specific items — assume a well-stocked kitchen";
   const diet=S.dietPrefs.length?S.dietPrefs.map(p=>DIET_OPTIONS.find(o=>o.id===p)?.label).join(", "):"No restrictions";
   const household=S.household.map(m=>m.name+" ("+m.type+(m.age?", age "+m.age:"")+")").join(", ");
@@ -616,8 +662,9 @@ async function generatePlan(){
   if(!key){S.generateError="No Gemini API key — tap ⚙ Settings.";render();return;}
   S.loading=true; S.generateError=""; S.mealPlan=null; ls("mealPlan",null); render();
 
-  const inv=S.inventory.length
-    ?S.inventory.map(i=>i.name+(i.qty?" ("+i.qty+")":"")+" ["+i.category+"]").join(", ")
+  const stockedItems=S.inventory.filter(isStocked);
+  const inv=stockedItems.length
+    ?stockedItems.map(i=>i.name+(i.qty?" ("+i.qty+")":"")+" ["+i.category+"]").join(", ")
     :"No specific items — assume a well-stocked kitchen";
   const diet=S.dietPrefs.length?S.dietPrefs.map(p=>DIET_OPTIONS.find(o=>o.id===p)?.label).join(", "):"No restrictions";
   const household=S.household.map(m=>m.name+" ("+m.type+(m.age?", age "+m.age:"")+")").join(", ");
@@ -705,20 +752,44 @@ function renderStepper(){
 function renderInventory(){
   const grouped={};
   CATEGORIES.forEach(c=>{const items=S.inventory.filter(i=>i.category===c);if(items.length)grouped[c]=items;});
-  const chips=Object.entries(grouped).map(([cat,items])=>
-    '<div class="cat-group"><div class="cat-label">'+cat+'</div><div class="inv-grid">'
-    +items.map(item=>'<div class="inv-chip"><span>'+esc(item.name)+'</span>'
-      +(item.qty?'<span class="qty">· '+esc(item.qty)+'</span>':"")
-      +'<button onclick="removeItem('+item.id+')">×</button></div>').join("")
+  const groceryNorm=new Set(S.groceryList.map(g=>g.text.trim().toLowerCase()));
+
+  const itemRow=item=>{
+    const stocked=isStocked(item);
+    const inGrocery=groceryNorm.has(item.name.trim().toLowerCase());
+    return '<div class="pantry-item'+(stocked?" stocked":"")+'">'
+      +'<label class="pantry-check">'
+      +'<input type="checkbox" style="display:none" '+(stocked?"checked":"")+' onchange="toggleStocked('+item.id+')">'
+      +'<span class="pantry-checkmark">'+(stocked?"✓":"")+'</span>'
+      +'</label>'
+      +'<span class="pantry-text">'+esc(item.name)+'</span>'
+      +(item.qty?'<span class="pantry-qty">'+esc(item.qty)+'</span>':"")
+      +(!stocked?'<span class="pantry-out-badge">Out</span>':"")
+      +(!stocked
+        ?(inGrocery
+          ?'<button class="pantry-add-grocery" disabled>✓ In list</button>'
+          :'<button class="pantry-add-grocery" onclick="addInventoryItemToGrocery('+item.id+')">+ Grocery</button>')
+        :"")
+      +'<button class="rm-btn" onclick="removeItem('+item.id+')">×</button>'
+      +'</div>';
+  };
+
+  const groups=Object.entries(grouped).map(([cat,items])=>
+    '<div class="cat-group"><div class="cat-label">'+cat+'</div><div class="pantry-list">'
+    +items.map(itemRow).join("")
     +'</div></div>'
   ).join("");
+
+  const unstockedCount=S.inventory.filter(i=>!isStocked(i)).length;
+
   return '<div class="content">'
     +'<div class="toolbar"><h2 class="section-title">What\'s in your pantry?</h2>'
-    +'<div style="display:flex;gap:8px;align-items:center">'
-    +(S.inventory.length?'<span class="inv-count">'+S.inventory.length+' items</span>':"") 
-    +(S.scriptUrl?'<button class="btn btn-secondary" style="font-size:12px;padding:5px 11px" onclick="fetchSync()">'+( S.syncing?'↻ Syncing…':'↻ Sync now')+'</button>':"") 
+    +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    +(S.inventory.length?'<span class="inv-count">'+S.inventory.length+' items</span>':"")
+    +(unstockedCount?'<button class="btn btn-secondary" style="font-size:12px;padding:5px 11px" onclick="addUnstockedToGrocery()">🛒 Add '+unstockedCount+' unstocked</button>':"")
+    +(S.scriptUrl?'<button class="btn btn-secondary" style="font-size:12px;padding:5px 11px" onclick="fetchSync()">'+( S.syncing?'↻ Syncing…':'↻ Sync now')+'</button>':"")
     +'</div></div>'
-    +'<p class="section-desc">Add what you have on hand. Changes sync automatically.</p>'
+    +'<p class="section-desc">Check off what you have. Uncheck anything you\'re out of — it stays on the list so you can restock it, and only checked items get used when planning meals.</p>'
     +'<div class="card">'
     +'<div class="add-row">'
     +'<input class="fi name" placeholder="Item name" value="'+esc(S.newItem.name)+'" oninput="S.newItem.name=this.value" onkeydown="if(event.key===\'Enter\')addItem()">'
@@ -726,7 +797,7 @@ function renderInventory(){
     +'<select class="fi cat" onchange="S.newItem.category=this.value">'+CATEGORIES.map(c=>'<option'+(c===S.newItem.category?" selected":"")+'>'+c+'</option>').join("")+'</select>'
     +'<button class="btn btn-primary" onclick="addItem()">+ Add</button>'
     +'</div>'
-    +(S.inventory.length===0?'<div class="empty-state"><div class="icon">🫙</div><div>Add your first item, or continue and the AI will assume a well-stocked kitchen.</div></div>':chips)
+    +(S.inventory.length===0?'<div class="empty-state"><div class="icon">🫙</div><div>Add your first item, or continue and the AI will assume a well-stocked kitchen.</div></div>':groups)
     +'</div>'
     +'<div class="nav-row desktop-nav"><div></div><button class="btn btn-primary btn-lg" onclick="S.step=2;render()">Next: Preferences →</button></div>'
     +'<div class="mobile-nav"><button class="btn btn-primary" onclick="S.step=2;render()">Next: Preferences →</button></div>'
@@ -887,7 +958,7 @@ function renderMealPlan(){
 function renderGrocery(){
   const unchecked=S.groceryList.filter(i=>!i.checked);
   const checked=S.groceryList.filter(i=>i.checked);
-  const sourceLabel=s=>s==="siri"?"Siri":s==="plan"?"Meal Plan":"";
+  const sourceLabel=s=>s==="siri"?"Siri":s==="plan"?"Meal Plan":s==="pantry"?"Pantry":"";
 
   const itemRow=item=>
     '<div class="grocery-item'+(item.checked?" checked":"")+'">'
