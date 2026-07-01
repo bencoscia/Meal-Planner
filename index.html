@@ -87,7 +87,7 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
 .tab-item.active{color:var(--accent);border-color:var(--accent);top:0;font-weight:700;}
 .tab-item:hover{color:var(--text);}
 
-.content{max-width:780px;margin:0 auto;padding:28px 20px 60px;}
+.content{max-width:1140px;margin:0 auto;padding:28px 20px 60px;}
 .section-title{font-family:'IBM Plex Sans',sans-serif;font-size:20px;font-weight:700;letter-spacing:-0.2px;margin-bottom:4px;}
 .section-desc{font-size:14px;color:var(--muted);margin-bottom:24px;}
 
@@ -99,7 +99,11 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
 .btn-secondary:hover{border-color:var(--accent);color:var(--accent);}
 .btn-lg{padding:13px 28px;font-size:15px;border-radius:9px;}
 
-.card{background:var(--surface);border:1.5px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px;}
+.card{background:var(--surface);border:1.5px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px;max-width:720px;margin-left:auto;margin-right:auto;}
+.week-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;align-items:start;}
+.week-grid .day-card{margin-bottom:0;}
+.pantry-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;align-items:start;}
+.pantry-grid .cat-group{margin-bottom:0;}
 .add-row{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;}
 .fi{font-family:'IBM Plex Sans',sans-serif;font-size:14px;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none;}
 .fi:focus{border-color:var(--accent);}
@@ -918,8 +922,9 @@ function renderInventory(){
     +'<select class="fi cat" onchange="S.newItem.category=this.value">'+CATEGORIES.map(c=>'<option'+(c===S.newItem.category?" selected":"")+'>'+c+'</option>').join("")+'</select>'
     +'<button class="btn btn-primary" onclick="addItem()">+ Add</button>'
     +'</div>'
-    +(S.inventory.length===0?'<div class="empty-state"><div class="icon">🫙</div><div>Add your first item, or continue and the AI will assume a well-stocked kitchen.</div></div>':groups)
+    +(S.inventory.length===0?'<div class="empty-state"><div class="icon">🫙</div><div>Add your first item, or continue and the AI will assume a well-stocked kitchen.</div></div>':"")
     +'</div>'
+    +(S.inventory.length>0?'<div class="pantry-grid">'+groups+'</div>':"")
     +'</div>';
 }
 
@@ -1090,7 +1095,7 @@ function renderPlanTab(){
     +'<h2 class="section-title" style="margin-bottom:0">This Week</h2>'
     +'<button class="btn btn-secondary" style="font-size:13px" onclick="generatePlan()">↻ Regenerate week</button>'
     +'</div>'
-    +restHtml+shopping
+    +'<div class="week-grid">'+restHtml+'</div>'+shopping
     +renderQuickMeals()
     +'</div>';
 }
