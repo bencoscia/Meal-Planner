@@ -1320,6 +1320,14 @@ function render(){
   }
   S._pendingRender=false;
   const scrollY = window.scrollY;
+  // Guard 3 (modal scroll): .settings-panel (Settings AND Preferences modals) is
+  // an inner scroll container (max-height:90vh; overflow-y:auto). Guard 2 below
+  // preserves the page scroll, but the innerHTML rebuild destroys/recreates the
+  // panel and resets its scrollTop to 0 — so any onchange-triggered render (e.g.
+  // blurring a field by tapping blank space) snapped the modal back to the top.
+  // Capture by index: render always emits Settings then Preferences, so indices
+  // are stable across a rebuild triggered by an in-modal edit.
+  const panelScrolls=[...document.querySelectorAll(".settings-panel")].map(p=>p.scrollTop);
   let html=renderHeader()+renderTabs()+renderError();
   if(S.loading){
     html+='<div class="loading-wrap"><div class="ltitle">Crafting your week…</div><p>Planning 7 days of meals around your pantry.</p>'+dots()+'</div>';
@@ -1334,6 +1342,7 @@ function render(){
   html+=renderPreferencesModal();
   document.getElementById("app").innerHTML=html;
   window.scrollTo(0, scrollY);
+  document.querySelectorAll(".settings-panel").forEach((p,i)=>{ if(panelScrolls[i]) p.scrollTop=panelScrolls[i]; });
 }
 
 loadAll();
