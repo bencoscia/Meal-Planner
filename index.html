@@ -169,6 +169,13 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
 .mname{flex:2;min-width:100px;}
 .mtype{flex:1;min-width:90px;}
 .mage{width:64px;text-align:center;font-family:'IBM Plex Mono',monospace;}
+.member-card{border:1.5px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:10px;background:var(--surface);}
+.member-card .member-row{margin-bottom:8px;}
+.member-bio{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;}
+.member-bio input,.member-bio select{font-family:'IBM Plex Sans',sans-serif;font-size:13px;padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none;}
+.member-bio input:focus,.member-bio select:focus{border-color:var(--accent);}
+.mbio-num{width:64px;text-align:center;font-family:'IBM Plex Mono',monospace;}
+.member-target{font-size:12px;color:var(--muted);font-family:'IBM Plex Mono',monospace;}
 
 /* Fixed meals */
 .fixed-item{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;margin-bottom:6px;}
@@ -391,9 +398,11 @@ function calcTDEE(member){
 
   // Adults: Mifflin-St Jeor. Requires real biometrics — with weight/height missing
   // the formula degenerates to garbage (e.g. -161 BMR for sex!=="male"), so return
-  // null ("unknown") instead of guessing. This is the single place a target number
-  // is produced; householdNutritionSummary renders null as "unknown".
-  if(!(weightKg>0) || !(heightCm>0)) return null;
+  // null ("unknown") instead of guessing. Sex must be explicit too: a blank sex
+  // would silently apply the female constant (~166 kcal off for males). This is
+  // the single place a target number is produced; householdNutritionSummary and
+  // the Preferences editor render null as "unknown".
+  if(!(weightKg>0) || !(heightCm>0) || (member.sex!=="male"&&member.sex!=="female")) return null;
   const isMale=member.sex==="male";
   const bmr = isMale
     ? 10*weightKg + 6.25*heightCm - 5*age + 5
@@ -408,6 +417,19 @@ function householdNutritionSummary(){
     const tdee=calcTDEE(m);
     return m.name+" ("+m.type+(m.age?", age "+m.age:"")+", target: "+(tdee||"unknown")+" kcal/day)";
   }).join("; ");
+}
+
+// User-facing rendering of the calcTDEE contract (null = unknown), naming what's
+// missing so the editor is self-explaining. Text only — no color-coded status.
+function tdeeLabel(m){
+  const t=calcTDEE(m);
+  if(t) return "Target: ~"+t.toLocaleString()+" kcal/day ("+(m.type==="adult"?(m.goal||"maintain"):"age-based estimate")+")";
+  if(m.type!=="adult") return "Target: unknown — add age";
+  const missing=[];
+  if(!(parseFloat(m.weight)>0)) missing.push("weight");
+  if(!(toCm(m.height||"",m.unit||"imperial")>0)) missing.push("height");
+  if(m.sex!=="male"&&m.sex!=="female") missing.push("sex");
+  return "Target: unknown — add "+(missing.length?missing.join(", "):"valid height/weight");
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -986,16 +1008,45 @@ function renderPreferencesModal(){
     return '<div class="diet-toggle'+(active?" active":"")+'" onclick="togglePref(\''+o.id+'\')">'
       +'<span>'+o.emoji+'</span><span>'+o.label+'</span>'+(active?'<span style="margin-left:auto">✓</span>':"")+'</div>';
   }).join("");
-  const membersHtml=S.household.map(m=>
-    '<div class="member-row">'
-    +'<input class="mname" placeholder="Name" value="'+esc(m.name)+'" oninput="S.household=S.household.map(h=>h.id==='+m.id+'?{...h,name:this.value}:h)" onchange="updateMember('+m.id+',\'name\',this.value)">'
-    +'<select class="mtype" onchange="updateMember('+m.id+',\'type\',this.value)">'
-    +['adult','child','toddler','infant'].map(t=>'<option'+(t===m.type?" selected":"")+'>'+t+'</option>').join("")
-    +'</select>'
-    +'<input class="mage" placeholder="Age" value="'+esc(m.age)+'" oninput="S.household=S.household.map(h=>h.id==='+m.id+'?{...h,age:this.value}:h)" onchange="updateMember('+m.id+',\'age\',this.value)">'
-    +'<button class="rm-btn" onclick="removeMember('+m.id+')">×</button>'
-    +'</div>'
-  ).join("");
+  const membersHtml=S.household.map(m=>{
+    const imperial=(m.unit||"imperial")==="imperial";
+    // Biometrics row only for adults — non-adults use the age-based estimate,
+    // so their target is fully determined by the age field in the top row.
+    const bio=m.type==="adult"
+      ?'<div class="member-bio">'
+      +'<select onchange="updateMember('+m.id+',\'sex\',this.value)" title="Sex">'
+      +'<option value=""'+(m.sex!=="male"&&m.sex!=="female"?" selected":"")+'>sex…</option>'
+      +['male','female'].map(x=>'<option value="'+x+'"'+(m.sex===x?" selected":"")+'>'+x+'</option>').join("")
+      +'</select>'
+      +'<input class="mbio-num" placeholder="'+(imperial?"5\'10":"178")+'" title="Height ('+(imperial?"ft\'in":"cm")+')" value="'+esc(m.height||"")+'" '
+      +'oninput="S.household=S.household.map(h=>h.id==='+m.id+'?{...h,height:this.value}:h)" onchange="updateMember('+m.id+',\'height\',this.value)">'
+      +'<input class="mbio-num" placeholder="'+(imperial?"170":"77")+'" title="Weight ('+(imperial?"lb":"kg")+')" value="'+esc(m.weight||"")+'" '
+      +'oninput="S.household=S.household.map(h=>h.id==='+m.id+'?{...h,weight:this.value}:h)" onchange="updateMember('+m.id+',\'weight\',this.value)">'
+      +'<select onchange="updateMember('+m.id+',\'unit\',this.value)" title="Units — values are not auto-converted; re-enter after switching">'
+      +[["imperial","ft·lb"],["metric","cm·kg"]].map(u=>'<option value="'+u[0]+'"'+((m.unit||"imperial")===u[0]?" selected":"")+'>'+u[1]+'</option>').join("")
+      +'</select>'
+      +'<select onchange="updateMember('+m.id+',\'activity\',this.value)" title="Activity level">'
+      +[["sedentary","sedentary"],["light","light activity"],["moderate","moderate activity"],["active","active"],["very_active","very active"]]
+        .map(a=>'<option value="'+a[0]+'"'+((m.activity||"moderate")===a[0]?" selected":"")+'>'+a[1]+'</option>').join("")
+      +'</select>'
+      +'<select onchange="updateMember('+m.id+',\'goal\',this.value)" title="Goal">'
+      +[["lose","lose (-500)"],["maintain","maintain"],["gain","gain (+300)"]]
+        .map(g=>'<option value="'+g[0]+'"'+((m.goal||"maintain")===g[0]?" selected":"")+'>'+g[1]+'</option>').join("")
+      +'</select>'
+      +'</div>':"";
+    return '<div class="member-card">'
+      +'<div class="member-row">'
+      +'<input class="mname" placeholder="Name" value="'+esc(m.name)+'" oninput="S.household=S.household.map(h=>h.id==='+m.id+'?{...h,name:this.value}:h)" onchange="updateMember('+m.id+',\'name\',this.value)">'
+      +'<select class="mtype" onchange="updateMember('+m.id+',\'type\',this.value)">'
+      +['adult','child','toddler','infant'].map(t=>'<option'+(t===m.type?" selected":"")+'>'+t+'</option>').join("")
+      +'</select>'
+      +'<input class="mage" placeholder="Age" value="'+esc(m.age)+'" oninput="S.household=S.household.map(h=>h.id==='+m.id+'?{...h,age:this.value}:h)" onchange="updateMember('+m.id+',\'age\',this.value)">'
+      +'<button class="rm-btn" onclick="removeMember('+m.id+')">×</button>'
+      +'</div>'
+      +bio
+      +'<div class="member-target">'+esc(tdeeLabel(m))+'</div>'
+      +'</div>';
+  }).join("");
   const fixedHtml=S.fixedMeals.map(m=>
     '<div class="fixed-item"><div>'
     +'<span class="fixed-day">'+m.day+' · '+m.mealType+'</span>'
