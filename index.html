@@ -228,6 +228,12 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
 .preview-diff .arrow{font-family:'IBM Plex Mono',monospace;margin:0 6px;}
 .preview-adds{font-size:12px;color:var(--muted);margin:8px 0;}
 .preview-actions{display:flex;gap:8px;margin-top:10px;}
+.grocery-qty{color:var(--muted);font-size:12px;}
+.ged-open{border:none;background:none;color:var(--muted);font-size:14px;cursor:pointer;padding:2px 6px;flex-shrink:0;}
+.grocery-item.editing{display:flex;gap:6px;align-items:center;}
+.ged-name{flex:1;min-width:0;}
+.ged-qty{width:90px;flex-shrink:0;}
+.ged-btn{padding:7px 11px;font-size:13px;flex-shrink:0;}
 .recipe-block{padding:10px 12px;background:var(--bg);border-radius:8px;border-left:3px solid var(--accent);}
 .recipe-title{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:7px;}
 .recipe-step{display:flex;gap:8px;font-size:13px;line-height:1.5;margin-bottom:5px;}
@@ -357,9 +363,10 @@ REQUIREMENTS:
 - Ensure VARIETY across the week: vary proteins, cuisines, and cooking methods. No repeated main dishes.
 - Make meals genuinely kid-friendly for young children: mild spice, soft textures, familiar flavors. Suggest simple modifications for kids where helpful (e.g. "set aside plain portion before adding sauce").
 - Respect all dietary preferences and fixed meals exactly. Never include avoided ingredients.
+- shopping_list entries must be bare base ingredient names with NO quantities, counts, or forms — "salmon" not "4 salmon fillets", "eggs" not "2 eggs".
 
 Respond ONLY in this JSON, no markdown:
-{"days":[{"day":"Monday","dinner":{"name":"...","ingredients":["2 chicken breasts","*1 lime"],"recipe":["Step with time/temp","Step 2"],"nutrition":{"calories":450,"protein":38,"carbs":32,"fat":14,"servingSize":"1.5 cups","kidsServing":"3/4 cup"}}}],"shopping_list":["item with qty"]}
+{"days":[{"day":"Monday","dinner":{"name":"...","ingredients":["2 chicken breasts","*1 lime"],"recipe":["Step with time/temp","Step 2"],"nutrition":{"calories":450,"protein":38,"carbs":32,"fat":14,"servingSize":"1.5 cups","kidsServing":"3/4 cup"}}}],"shopping_list":["bare ingredient name only"]}
 Include all days: {DAYS}`;
 
 const DEFAULT_PROMPT_DAY = `You are an expert meal planner specializing in fast, family-friendly weeknight dinners. Generate ONE dinner for {DAY}.
@@ -378,9 +385,10 @@ REQUIREMENTS:
 - Must be DIFFERENT from the dinners already planned this week.
 - Genuinely kid-friendly: mild spice, soft textures, familiar flavors.
 - Respect dietary preferences and fixed meals exactly. Never include avoided ingredients.
+- shopping_list entries must be bare base ingredient names with NO quantities, counts, or forms — "salmon" not "4 salmon fillets", "eggs" not "2 eggs".
 
 Respond ONLY in this JSON, no markdown:
-{"dinner":{"name":"...","ingredients":["2 chicken breasts","*1 lime"],"recipe":["Step with time/temp","Step 2"],"nutrition":{"calories":450,"protein":38,"carbs":32,"fat":14,"servingSize":"1.5 cups","kidsServing":"3/4 cup"}},"shopping_list":["item with qty"]}`;
+{"dinner":{"name":"...","ingredients":["2 chicken breasts","*1 lime"],"recipe":["Step with time/temp","Step 2"],"nutrition":{"calories":450,"protein":38,"carbs":32,"fat":14,"servingSize":"1.5 cups","kidsServing":"3/4 cup"}},"shopping_list":["bare ingredient name only"]}`;
 
 
 // ── Nutrition Helpers ─────────────────────────────────────────────────────────
@@ -465,6 +473,9 @@ const S={
   missingIngredients:[],   // [{text, invId|null, gid|null}] — persisted AND synced (see AUDIT.md §3/§4);
                            // cleared per-entry when its linked pantry item is restocked
   generation:null,         // preview slot for generate-preview-commit steering — session-only (see AUDIT.md §4)
+  editingGrocery:null,     // {id,text,qty} in-progress row edit — session-only draft
+  groceryUndo:null,        // single-slot undo: {label, type:"added"|"removed", ids|items} — session-only,
+                           // deliberately NOT synced (the other phone must not be able to undo your action)
   groceryList:[], newGroceryItem:"", newGroceryStore:"grocery",
   settingsDraft:{geminiKey:"",scriptUrl:"",userName:"",promptWeek:"",promptDay:""},
   // Sync state
@@ -635,6 +646,7 @@ function addUnstockedToGrocery(){
     added.push({id:Date.now()+i, text:item.name.trim(), checked:false, source:"pantry", store:"either"});
   });
   if(!added.length) return;
+  S.groceryUndo={label:"added "+added.length+" unstocked", type:"added", ids:added.map(a=>a.id)};
   setAndSync("groceryList", [...S.groceryList, ...added]);
 }
 
@@ -680,7 +692,7 @@ function toggleIngredientMissing(day, idx){
   // "Don't have it" implies "need to buy it": queue it on the grocery list
   // (deduped, case-insensitive; prefer the pantry item's clean name over the
   // recipe's quantity-laden ingredient text). gid is remembered for exact undo.
-  const gtext=(hit?hit.name:clean).trim();
+  const gtext=(hit?hit.name:stripQty(clean)).trim();
   let gid=null;
   if(gtext && !S.groceryList.some(i=>i.text.trim().toLowerCase()===gtext.toLowerCase())){
     gid=Date.now();
@@ -739,6 +751,19 @@ function removeQuickMeal(type,idx){
 }
 
 // Adds one item, deduped case-insensitively against existing items.
+// Best-effort de-quantifier for text arriving on the grocery list from
+// recipes: strips a LEADING count/amount (+optional unit) — "2 eggs"→"eggs",
+// "1/2 cup rice"→"rice", "4 salmon fillets"→"salmon fillets". It deliberately
+// does NOT touch trailing form-nouns ("fillets"): that judgment call belongs
+// to the AI, and the prompt now demands bare names ("salmon") at the source.
+// This is only the fallback for legacy plans and saved custom prompts.
+const QTY_UNITS="cups?|tbsp|tsp|tablespoons?|teaspoons?|oz|ounces?|lbs?|pounds?|grams?|kilograms?|kg|g|ml|l|liters?|litres?|cloves?|cans?|jars?|bottles?|packs?|packages?|bunch(?:es)?|slices?|pieces?|sticks?|heads?|pints?|quarts?|gallons?";
+const QTY_RE=new RegExp("^(?:about |approx\\.? |~)?\\d[\\d\\/.,\\-\\u00bc-\\u00be\\s]*(?:("+QTY_UNITS+")\\b)?\\s*(?:of\\s+)?","i");
+function stripQty(s){
+  const t=String(s).trim().replace(QTY_RE,"").trim();
+  return t||String(s).trim();   // never strip to empty
+}
+
 function addGroceryItem(text, source, store){
   const norm=text.trim().toLowerCase();
   if(!norm) return;
@@ -772,10 +797,60 @@ function toggleGroceryChecked(id){
   setAndSync("groceryList", updated);
 }
 function removeGroceryItem(id){
+  const item=S.groceryList.find(i=>i.id===id);
+  if(!item) return;
+  S.groceryUndo={label:"removed \u201c"+item.text+"\u201d", type:"removed", items:[item]};
   setAndSync("groceryList", S.groceryList.filter(i=>i.id!==id));
 }
 function clearCheckedGroceries(){
+  const removed=S.groceryList.filter(i=>i.checked);
+  if(!removed.length) return;
+  S.groceryUndo={label:"cleared "+removed.length+" checked", type:"removed", items:removed};
   setAndSync("groceryList", S.groceryList.filter(i=>!i.checked));
+}
+
+// ── Grocery undo ──────────────────────────────────────────────────────────────
+// Single session-local slot covering the batch/destructive operations: plan
+// import, bulk-unstocked add, row delete, clear-checked. Each records enough
+// to invert itself exactly — "added" stores the new ids, "removed" stores the
+// full item objects (original ids preserved, so a round trip is lossless).
+// One level deep on purpose; the next undoable action replaces the slot.
+// Not synced: the other phone must not be able to undo your action.
+function undoGroceryAction(){
+  const u=S.groceryUndo;
+  if(!u) return;
+  S.groceryUndo=null;
+  if(u.type==="added"){
+    const ids=new Set(u.ids);
+    setAndSync("groceryList", S.groceryList.filter(i=>!ids.has(i.id)));
+  }else{
+    // Re-add, skipping any the user already re-created by hand (dedupe by text)
+    const have=new Set(S.groceryList.map(i=>i.text.trim().toLowerCase()));
+    const back=u.items.filter(i=>!have.has(i.text.trim().toLowerCase()));
+    setAndSync("groceryList", [...S.groceryList, ...back]);
+  }
+}
+
+// ── Grocery inline edit (name + optional qty) ─────────────────────────────────
+// S.editingGrocery is a session draft {id,text,qty}; inputs bind oninput to it
+// (no render while typing — Guard 1 territory), Enter or ✓ commits, ✕ cancels.
+function editGroceryItem(id){
+  const item=S.groceryList.find(i=>i.id===id);
+  if(!item) return;
+  S.editingGrocery={id, text:item.text, qty:item.qty||""};
+  render();
+  const el=document.getElementById("ged-name");
+  if(el){ el.focus(); try{el.setSelectionRange(el.value.length,el.value.length);}catch(e){} }
+}
+function cancelGroceryEdit(){ S.editingGrocery=null; render(); }
+function commitGroceryEdit(){
+  const d=S.editingGrocery;
+  if(!d) return;
+  S.editingGrocery=null;
+  const text=d.text.trim(), qty=d.qty.trim();
+  if(!S.groceryList.some(i=>i.id===d.id)){ render(); return; }  // deleted remotely mid-edit
+  if(!text){ render(); return; }                                 // never commit an empty name
+  setAndSync("groceryList", S.groceryList.map(i=>i.id===d.id?{...i, text, qty}:i));
 }
 // ── Shopping-list provenance ──────────────────────────────────────────────────
 // shopping_list items are {text, day|null}: day names the steering commit that
@@ -794,12 +869,14 @@ function importPlanGroceries(){
   const seen=new Set(S.groceryList.map(i=>i.text.trim().toLowerCase()));
   const added=[];
   list.forEach((t,i)=>{
-    const norm=shopText(t).trim().toLowerCase();
+    const text=stripQty(shopText(t));      // de-quantify: "2 eggs" → "eggs"
+    const norm=text.toLowerCase();
     if(!norm||seen.has(norm)) return;
     seen.add(norm);
-    added.push({id:Date.now()+i, text:shopText(t).trim(), checked:false, source:"plan", store:"either"});
+    added.push({id:Date.now()+i, text, checked:false, source:"plan", store:"either"});
   });
   if(!added.length) return;
+  S.groceryUndo={label:"added "+added.length+" from meal plan", type:"added", ids:added.map(a=>a.id)};
   setAndSync("groceryList", [...S.groceryList, ...added]);
 }
 
@@ -1498,17 +1575,32 @@ function renderGrocery(){
   const sourceLabel=s=>s==="siri"?"Siri":s==="plan"?"Meal Plan":s==="pantry"?"Pantry":"";
   const storeLabel=s=>s==="costco"?"Costco":s==="grocery"?"Grocery":"Either";
 
-  const itemRow=item=>
-    '<div class="grocery-item'+(item.checked?" checked":"")+'">'
+  const itemRow=item=>{
+    const ed=S.editingGrocery;
+    if(ed&&ed.id===item.id){
+      // Edit mode: name + qty drafts bind oninput to S.editingGrocery (no
+      // render while typing — Guard 1); Enter/✓ commits, ✕ cancels.
+      return '<div class="grocery-item editing">'
+        +'<input id="ged-name" class="fi ged-name" value="'+esc(ed.text)+'" placeholder="Item name" '
+        +'oninput="S.editingGrocery.text=this.value" onkeydown="if(event.key===\'Enter\')commitGroceryEdit();if(event.key===\'Escape\')cancelGroceryEdit()">'
+        +'<input class="fi ged-qty" value="'+esc(ed.qty)+'" placeholder="qty (opt.)" '
+        +'oninput="S.editingGrocery.qty=this.value" onkeydown="if(event.key===\'Enter\')commitGroceryEdit();if(event.key===\'Escape\')cancelGroceryEdit()">'
+        +'<button class="btn btn-primary ged-btn" onclick="commitGroceryEdit()">✓</button>'
+        +'<button class="btn btn-secondary ged-btn" onclick="cancelGroceryEdit()">✕</button>'
+        +'</div>';
+    }
+    return '<div class="grocery-item'+(item.checked?" checked":"")+'">'
     +'<label class="grocery-check">'
     +'<input type="checkbox" style="display:none" '+(item.checked?"checked":"")+' onchange="toggleGroceryChecked('+item.id+')">'
     +'<span class="grocery-checkmark"><svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 8.5L6.5 12L13 4.5" stroke="white" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'
     +'</label>'
-    +'<span class="grocery-text">'+esc(item.text)+'</span>'
+    +'<span class="grocery-text">'+esc(item.text)+(item.qty?'<span class="grocery-qty"> · '+esc(item.qty)+'</span>':"")+'</span>'
+    +'<button class="ged-open" title="Edit name / quantity" onclick="editGroceryItem('+item.id+')">✎</button>'
     +(sourceLabel(item.source)?'<span class="grocery-source">'+sourceLabel(item.source)+'</span>':"")
     +(!item.checked?'<button class="grocery-store-tag" onclick="cycleGroceryStore('+item.id+')" title="Tap to change store">'+storeLabel(item.store)+'</button>':"")
     +'<button class="rm-btn" onclick="removeGroceryItem('+item.id+')">×</button>'
     +'</div>';
+  };
 
   const hasPlanItems=S.mealPlan?.shopping_list?.length>0;
 
@@ -1531,7 +1623,8 @@ function renderGrocery(){
     +'<button class="grocery-store-tag" onclick="cycleNewGroceryStore()" title="Tap to change store" style="flex-shrink:0">'+storeLabel(S.newGroceryStore)+'</button>'
     +'<button class="btn btn-primary" onclick="addGroceryFromInput()">+ Add</button>'
     +'</div>'
-    +(hasPlanItems?'<button class="btn btn-secondary" style="font-size:13px;margin-bottom:16px" onclick="importPlanGroceries()">↓ Add items from meal plan</button>':"")
+    +(hasPlanItems?'<button class="btn btn-secondary" style="font-size:13px;margin-bottom:16px;margin-right:8px" onclick="importPlanGroceries()">↓ Add items from meal plan</button>':"")
+    +(S.groceryUndo?'<button class="btn btn-secondary" style="font-size:13px;margin-bottom:16px" onclick="undoGroceryAction()">↶ Undo: '+esc(S.groceryUndo.label)+'</button>':"")
     +(unchecked.length
       ?storeSection("🏪 Grocery Store",groceryItems)+storeSection("📦 Costco",costcoItems)
       :'<div class="empty-state"><div class="icon">🛒</div><div>Your grocery list is empty. Add items above'+(S.scriptUrl?' or by voice.':'.')+'</div></div>')

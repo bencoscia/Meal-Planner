@@ -45,6 +45,10 @@ const S = {
                                  // returns" bug). invId = pantry item the mark unstocked; gid = grocery
                                  // entry the mark created. Both exist so undo reverses exactly what the
                                  // mark did. An entry auto-clears when its invId item is restocked.
+  editingGrocery: null,          // {id,text,qty} in-progress grocery row edit — session-only draft
+  groceryUndo: null,             // single-slot grocery undo {label,type:"added"|"removed",ids|items} —
+                                 // session-only, deliberately NOT synced (the other phone must not be
+                                 // able to undo your action). See §4 Grocery.
   generation: null,              // generate-preview-commit slot (see §4a) — EPHEMERAL, never persisted/synced:
                                  // {id, day, steering, candidate:{dinner,shopping_list}, status:"preview"|"committed", createdAt}
 
@@ -154,6 +158,12 @@ doPost(e) → parses e.postData.contents as JSON, then:
               else: shallow Object.assign(existing, incoming, {lastUpdated, lastUpdatedBy})
 ```
 **Every `doPost` call is wrapped in `LockService.getScriptLock()`.** This exists specifically because a Siri-triggered `addGrocery` call and a normal app `pushSync()` can land within the same second, and without a lock, a naive read-modify-write race could let one silently clobber the other's write.
+
+**Grocery items now carry an optional `qty` field** (free text, e.g. "2 lbs"), rendered muted after the name ("salmon · 2 lbs"); absent on old items and harmless to old clients. **Inline edit:** the ✎ button on each row opens name + qty inputs bound to the session draft `S.editingGrocery` (no render while typing — Guard 1); Enter/✓ commits via one `setAndSync`, ✕/Escape cancels. Guards: an empty name never commits; an item deleted remotely mid-edit is not resurrected (edit silently closes).
+
+**Single-slot undo (`S.groceryUndo` + `undoGroceryAction`)** covers the batch/destructive operations: plan import, bulk-unstocked add, row delete, clear-checked. "added" records the new ids (undo filters them out); "removed" records the full item objects (undo re-appends them with original ids — checked state, qty, and provenance survive the round trip; re-add dedupes by text in case the user re-created one by hand). One level deep by design; each undoable action replaces the slot. Session-only and deliberately not synced. Single adds, ∅ marks, and checkbox toggles are not covered — each already has a one-tap reversal.
+
+**Quantity normalization** happens at two levels. Primary: both default prompt templates now demand `shopping_list` entries be bare base ingredient names ("salmon", not "4 salmon fillets") — the AI does the normalization. Fallback: `stripQty()` at the grocery entry points (`importPlanGroceries`, the ∅ mark's no-pantry-match branch) strips a *leading* count/amount/unit — "2 eggs"→"eggs", "1/2 cup rice"→"rice" — but deliberately never touches trailing form-nouns ("4 salmon fillets"→"salmon fillets", not "salmon"; that judgment call belongs to the AI). It never strips to empty. **Trap: saved custom prompts in localStorage do not pick up the new default wording** — reset prompts in Settings (or hand-edit) to get bare names at the source. Import dedupe now compares post-strip text.
 
 `addGrocery` action (used exclusively by the Siri Shortcut) does **not** go through the shallow-merge path — it reads the current `groceryList`, appends new item(s) server-side, and writes back, all inside the lock. It also splits on commas (`"milk, eggs, bread"` → 3 separate items) and dedupes case-insensitively against existing items. New items get `store: "either"`.
 
