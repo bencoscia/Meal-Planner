@@ -462,7 +462,8 @@ const S={
   newQuick:{breakfast:"",lunch:""},
   mealPlan:null, loading:false, regenDay:null, generateError:"", expandedDay:null,
   dayInstructions:{},
-  missingIngredients:[],   // [{text, invId|null}] — session-only, like dayInstructions (see AUDIT.md)
+  missingIngredients:[],   // [{text, invId|null, gid|null}] — persisted AND synced (see AUDIT.md §3/§4);
+                           // cleared per-entry when its linked pantry item is restocked
   generation:null,         // preview slot for generate-preview-commit steering — session-only (see AUDIT.md §4)
   groceryList:[], newGroceryItem:"", newGroceryStore:"grocery",
   settingsDraft:{geminiKey:"",scriptUrl:"",userName:"",promptWeek:"",promptDay:""},
@@ -477,7 +478,7 @@ function ls(k,v){
   try{if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,JSON.stringify(v));}catch(e){}
 }
 
-const SYNC_KEYS=["inventory","dietPrefs","household","avoid","fixedMeals","mealPlan","quickMeals","promptWeek","promptDay","groceryList"];
+const SYNC_KEYS=["inventory","dietPrefs","household","avoid","fixedMeals","mealPlan","quickMeals","promptWeek","promptDay","groceryList","missingIngredients"];
 
 function loadAll(){
   S.inventory   = ls("inventory") || SEED;
@@ -488,6 +489,7 @@ function loadAll(){
   S.mealPlan    = ls("mealPlan") || null;
   S.quickMeals  = ls("quickMeals") || S.quickMeals;
   S.groceryList = ls("groceryList") || [];
+  S.missingIngredients = ls("missingIngredients") || [];
   S.promptWeek  = ls("promptWeek") || DEFAULT_PROMPT_WEEK;
   S.promptDay   = ls("promptDay") || DEFAULT_PROMPT_DAY;
   S.scriptUrl   = ls("scriptUrl") || "";
@@ -603,8 +605,14 @@ function updateInventoryItem(id,field,value){
 function isStocked(item){ return item.stocked!==false; }
 
 function toggleStocked(id){
-  const updated=S.inventory.map(i=>i.id===id?{...i, stocked: !isStocked(i)}:i);
-  setAndSync("inventory", updated);
+  const item=S.inventory.find(i=>i.id===id);
+  const nowStocked=item?!isStocked(item):false;
+  setAndSync("inventory", S.inventory.map(i=>i.id===id?{...i, stocked: !isStocked(i)}:i));
+  // Restocking is the natural end of "we don't have it": clear any ∅ exclusion
+  // linked to this pantry item so it stops haunting future generations.
+  if(nowStocked && S.missingIngredients.some(m=>m.invId===id)){
+    setAndSync("missingIngredients", S.missingIngredients.filter(m=>m.invId!==id));
+  }
 }
 
 function addInventoryItemToGrocery(id){
@@ -649,11 +657,17 @@ function toggleIngredientMissing(day, idx){
   const clean=String(raw).replace(/^\*/,"").trim();
   const existing=findMissing(clean);
   if(existing){
-    // Undo: restock only the exact item this action unstocked, if any.
-    S.missingIngredients=S.missingIngredients.filter(m=>m!==existing);
+    // Undo, symmetric with everything the mark did:
+    // exclusion out; exact pantry item restocked; grocery entry removed —
+    // but only if it's still unchecked (a checked-off item was bought; keep it).
+    setAndSync("missingIngredients", S.missingIngredients.filter(m=>m!==existing));
     if(existing.invId!=null){
       setAndSync("inventory", S.inventory.map(i=>i.id===existing.invId?{...i,stocked:true}:i));
-    } else { render(); }
+    }
+    if(existing.gid!=null){
+      const gi=S.groceryList.find(i=>i.id===existing.gid);
+      if(gi&&!gi.checked) setAndSync("groceryList", S.groceryList.filter(i=>i.id!==existing.gid));
+    }
     return;
   }
   // Fuzzy pantry match: case-insensitive substring in either direction,
@@ -663,10 +677,19 @@ function toggleIngredientMissing(day, idx){
     const inv=i.name.trim().toLowerCase();
     return inv.length>=3 && n.length>=3 && (n.includes(inv)||inv.includes(n)) && isStocked(i);
   });
-  S.missingIngredients=[...S.missingIngredients,{text:clean, invId:hit?hit.id:null}];
+  // "Don't have it" implies "need to buy it": queue it on the grocery list
+  // (deduped, case-insensitive; prefer the pantry item's clean name over the
+  // recipe's quantity-laden ingredient text). gid is remembered for exact undo.
+  const gtext=(hit?hit.name:clean).trim();
+  let gid=null;
+  if(gtext && !S.groceryList.some(i=>i.text.trim().toLowerCase()===gtext.toLowerCase())){
+    gid=Date.now();
+    setAndSync("groceryList",[...S.groceryList,{id:gid,text:gtext,checked:false,source:"pantry",store:"either"}]);
+  }
+  setAndSync("missingIngredients",[...S.missingIngredients,{text:clean, invId:hit?hit.id:null, gid}]);
   if(hit){
     setAndSync("inventory", S.inventory.map(i=>i.id===hit.id?{...i,stocked:false}:i));
-  } else { render(); }
+  }
 }
 // Assembled in JS into {CONTEXT} — custom saved prompt templates are unaffected.
 function missingContextLine(){
@@ -887,6 +910,15 @@ async function generateCandidate(day){
   const diet=S.dietPrefs.length?S.dietPrefs.map(p=>DIET_OPTIONS.find(o=>o.id===p)?.label).join(", "):"No restrictions";
   const household=S.household.map(m=>m.name+" ("+m.type+(m.age?", age "+m.age:"")+")").join(", ");
   const fixed=S.fixedMeals.find(m=>m.day===day&&m.mealType==="dinner");
+  // FIXED and MISSING can contradict (fixed meal = salmon; salmon marked
+  // unavailable). Two prompts fighting is nondeterministic — the model
+  // sometimes obeyed each side. Resolve client-side, deterministically:
+  // unavailability wins for THIS generation (you can't cook what you don't
+  // have); the fixed meal returns once the item is restocked. Detection is a
+  // word-overlap heuristic: any ≥4-char word of a missing ingredient appearing
+  // in the fixed-meal description counts as a conflict.
+  const missingWords=S.missingIngredients.flatMap(m=>normIng(m.text).split(/[^a-z]+/).filter(w=>w.length>=4));
+  const fixedConflict=!!(fixed&&missingWords.some(w=>fixed.description.toLowerCase().includes(w)));
   const avoid=S.avoid.trim()||"none";
   const existing=(S.mealPlan?.days||[])
     .filter(d=>d.day!==day)
@@ -905,7 +937,9 @@ async function generateCandidate(day){
   let prompt=(S.promptDay||DEFAULT_PROMPT_DAY)
     .replace(/\{DAY\}/g, day)
     .replace(/\{CONTEXT\}/g, ctxLines)
-    .replace(/\{FIXED\}/g, fixed?"FIXED: This dinner must be: "+fixed.description:"")
+    .replace(/\{FIXED\}/g, fixed?(fixedConflict
+      ?"NOTE: The usual fixed dinner for this day is \""+fixed.description+"\" but it requires ingredients the user does not have — do NOT make it. Generate a different dinner that avoids the unavailable ingredients."
+      :"FIXED: This dinner must be: "+fixed.description):"")
     .replace(/\{EXISTING\}/g, existing?"ALREADY PLANNED THIS WEEK (do not repeat): "+existing:"")
     .replace(/\{INSTRUCTION\}/g, instructionLine);
   // Fallback for a saved custom prompt that predates the {INSTRUCTION} placeholder —
@@ -917,6 +951,7 @@ async function generateCandidate(day){
     // Success replaces any open preview (for this or another day) — one slot,
     // which is what makes "steer, reject, steer again" a linear loop.
     S.generation={id:newGenId(), day, steering:instruction, candidate,
+                  fixedOverridden:fixedConflict,
                   status:"preview", createdAt:new Date().toISOString()};
     S.expandedDay=day;
   }catch(e){S.generateError="Error generating for "+day+": "+e.message;}
@@ -934,7 +969,15 @@ async function generateCandidate(day){
 function commitGeneration(id){
   const g=S.generation;
   if(!g||g.id!==id||g.status!=="preview") return;
-  if(!S.mealPlan||!Array.isArray(S.mealPlan.days)) return;
+  if(!S.mealPlan||!Array.isArray(S.mealPlan.days)){
+    // Reachable if the plan vanished under an open preview (e.g. the other
+    // device ran a full-week generate, which nulls mealPlan, and it synced
+    // in). A silent no-op here strands a dead Accept button — fail loudly
+    // and clear the orphaned preview.
+    S.generateError="The plan changed under this preview — discarded. Regenerate the day.";
+    S.generation=null; render();
+    return;
+  }
   g.status="committed";
   const updatedDays=S.mealPlan.days.map(d=>d.day===g.day?{...d, dinner:g.candidate.dinner}:d);
   // Provenance swap: drop shopping items this day's previous steering commits
@@ -1354,6 +1397,7 @@ function renderPreview(day){
     +'<div class="preview-label">Preview — not saved</div>'
     +'<div class="preview-diff"><span class="old">'+esc(oldName)+'</span><span class="arrow">→</span><strong>'+esc(g.candidate.dinner.name)+'</strong></div>'
     +(g.steering?'<div class="preview-adds">Steered by: “'+esc(g.steering)+'”</div>':"")
+    +(g.fixedOverridden?'<div class="preview-adds">⚠ Fixed meal for this day skipped — it needs an ingredient marked ∅ unavailable</div>':"")
     +renderMealCard(g.candidate.dinner)
     +(adds.length?'<div class="preview-adds">+ adds: '+esc(adds.join(", "))+'</div>':"")
     +(removes.length?'<div class="preview-adds">− removes (from the replaced meal): '+esc(removes.join(", "))+'</div>':"")
