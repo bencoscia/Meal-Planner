@@ -912,6 +912,11 @@ async function generateCandidate(day){
     S.expandedDay=day;
   }catch(e){S.generateError="Error generating for "+day+": "+e.message;}
   S.regenDay=null; renderKeepComposer(day);
+  // Bring the finished preview to the user instead of making them scroll to
+  // find it. block:"nearest" is a no-op when it's already visible, so this
+  // never fights Guard 2's scroll restore on desktop.
+  const panel=document.getElementById("preview-"+day);
+  if(panel) panel.scrollIntoView({behavior:"smooth",block:"nearest"});
 }
 
 // The ONLY writer of S.mealPlan in the steering flow. Idempotent: after a
@@ -1072,6 +1077,16 @@ function setView(v){ S.view=v; render(); }
 
 function todayDayName(){
   return new Date().toLocaleDateString("en-US",{weekday:"long"});
+}
+
+// After this local hour, tonight's dinner is settled — the hero card rolls
+// over to the NEXT day so the evening glance answers "what's for dinner
+// tomorrow." One constant, edit here to taste; no UI knob on purpose.
+const HERO_ROLLOVER_HOUR=20; // 8pm
+function heroDayName(){
+  const d=new Date();
+  if(d.getHours()>=HERO_ROLLOVER_HOUR) d.setDate(d.getDate()+1);
+  return d.toLocaleDateString("en-US",{weekday:"long"});
 }
 
 // Compact "here's what's configured" line shown on the Meal Plan tab, with
@@ -1306,7 +1321,7 @@ function renderPreview(day){
   const oldDinner=committed&&(committed.dinner||(committed.meals?.dinner));
   const oldName=oldDinner?oldDinner.name:"(no meal)";
   const adds=(g.candidate.shopping_list||[]).filter(i=>!(S.mealPlan?.shopping_list||[]).includes(i));
-  return '<div class="preview-panel">'
+  return '<div class="preview-panel" id="preview-'+day+'">'
     +'<div class="preview-label">Preview — not saved</div>'
     +'<div class="preview-diff"><span class="old">'+esc(oldName)+'</span><span class="arrow">→</span><strong>'+esc(g.candidate.dinner.name)+'</strong></div>'
     +(g.steering?'<div class="preview-adds">Steered by: “'+esc(g.steering)+'”</div>':"")
@@ -1321,14 +1336,20 @@ function renderPreview(day){
 }
 
 function renderDayCard(dayData, isHero){
-  const open=isHero||S.expandedDay===dayData.day;
+  const gen=S.generation&&S.generation.status==="preview"&&S.generation.day===dayData.day?S.generation:null;
+  // An open preview forces the card open — accept/reject is a decision the
+  // user must be able to see, regardless of accordion state.
+  const open=isHero||S.expandedDay===dayData.day||!!gen;
   const dinner=dayData.dinner||(dayData.meals?.dinner);
   const isRegen=S.regenDay===dayData.day;
   const noteVal=S.dayInstructions[dayData.day]||"";
   const composer='<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">'
     +'<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Want something different for '+dayData.day+'?</div>'
     +'<div style="display:flex;gap:8px">'
-    +'<input id="composer-'+dayData.day+'" placeholder="e.g. more veggies, use the shrimp" value="'+esc(noteVal)+'" '
+    // Disabled while regenerating: the steering text was snapshotted into the
+    // generation record when the request launched, so mid-flight edits cannot
+    // affect the pending candidate — leaving the field editable lies about that.
+    +'<input id="composer-'+dayData.day+'" '+(isRegen?'disabled ':'')+'placeholder="e.g. more veggies, use the shrimp" value="'+esc(noteVal)+'" '
     +'oninput="S.dayInstructions[\''+dayData.day+'\']=this.value" '
     +'onkeydown="if(event.key===\'Enter\')generateCandidate(\''+dayData.day+'\')" '
     +'style="flex:1;font-family:\'IBM Plex Sans\',sans-serif;font-size:13px;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none">'
@@ -1337,7 +1358,7 @@ function renderDayCard(dayData, isHero){
     +'</div></div>';
   return '<div class="day-card'+(isHero?" hero-day":"")+'">'
     +'<div class="day-header"'+(isHero?"":' onclick="toggleDay(\''+dayData.day+'\')"')+'>'
-    +'<span class="day-name">'+(isHero?"Today · ":"")+dayData.day+'</span>'
+    +'<span class="day-name">'+(isHero?(dayData.day===todayDayName()?"Today · ":"Tomorrow · "):"")+dayData.day+'</span>'
     +'<div style="display:flex;align-items:center;gap:8px">'
     +(isRegen?'<span style="font-size:12px;color:var(--muted)">Regenerating…</span>'
       :(dinner&&!isHero?'<span class="meal-badge">'+esc(dinner.name)+'</span>':""))
@@ -1348,8 +1369,10 @@ function renderDayCard(dayData, isHero){
     +'</div></div>'
     +'<div class="day-meals'+(open?" open":"")+'"><div class="meal-row">'
     +'<div class="meal-type">Dinner</div>'
-    +renderMealCard(dinner, dayData.day)
-    +renderPreview(dayData.day)
+    // Preview REPLACES the committed meal display (mobile: the decision is at
+    // the top of the card, no scrolling past the old meal). The diff line
+    // inside the panel still names the old meal, so nothing is lost.
+    +(gen?renderPreview(dayData.day):renderMealCard(dinner, dayData.day))
     +composer
     +'</div></div></div>';
 }
@@ -1370,9 +1393,10 @@ function renderPlanTab(){
       +'</div></div>';
   }
 
-  const today=todayDayName();
-  const todayData=S.mealPlan.days.find(d=>d.day===today);
-  const restDays=S.mealPlan.days.filter(d=>d.day!==today);
+  const hero=heroDayName();
+  const heroIsTomorrow=hero!==todayDayName();
+  const todayData=S.mealPlan.days.find(d=>d.day===hero);
+  const restDays=S.mealPlan.days.filter(d=>d.day!==hero);
 
   const heroHtml=todayData?renderDayCard(todayData,true):"";
   const restHtml=restDays.map(d=>renderDayCard(d,false)).join("");
@@ -1385,7 +1409,7 @@ function renderPlanTab(){
   return '<div class="content">'
     +summary+warn
     +'<p class="section-desc" style="margin-top:-8px;margin-bottom:16px;font-size:12px">🛒 = needs shopping</p>'
-    +(heroHtml?'<div class="cat-label">Today</div>'+heroHtml:"")
+    +(heroHtml?'<div class="cat-label">'+(heroIsTomorrow?"Tomorrow":"Today")+'</div>'+heroHtml:"")
     +'<div style="display:flex;justify-content:space-between;align-items:center;margin:24px 0 10px">'
     +'<h2 class="section-title" style="margin-bottom:0">This Week</h2>'
     +'<button class="btn btn-secondary" style="font-size:13px" onclick="generatePlan()">↻ Regenerate week</button>'
