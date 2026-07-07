@@ -214,9 +214,20 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
 .meal-row:last-child{border-bottom:none;}
 .meal-type{font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--accent);margin-bottom:3px;}
 .meal-name{font-family:'IBM Plex Sans',sans-serif;font-size:15px;font-weight:600;margin-bottom:9px;}
-.ingredients{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px;}
-.ing-tag{font-family:'IBM Plex Mono',monospace;font-size:12px;padding:2px 9px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);}
-.ing-tag.need{border-color:var(--warn-border);background:var(--warn-bg);color:var(--warn);}
+.ing-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:2px 18px;margin-bottom:10px;}
+.ing-row{display:flex;align-items:center;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;padding:3px 0;border-bottom:1px dashed var(--border);color:var(--text);}
+.ing-row .ing-text{flex:1;min-width:0;}
+.ing-row.need .ing-text{color:var(--warn);}
+.ing-row.missing .ing-text{text-decoration:line-through;font-style:italic;color:var(--muted);}
+.ing-missing-btn{font-size:11px;line-height:1;padding:3px 8px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--muted);cursor:pointer;flex-shrink:0;white-space:nowrap;}
+.ing-missing-btn.on{border-color:var(--warn-border);background:var(--warn-bg);color:var(--warn);font-weight:600;}
+.preview-panel{margin-top:12px;border:2px dashed var(--accent);border-radius:10px;padding:12px;background:var(--accent-light);}
+.preview-label{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent);margin-bottom:8px;}
+.preview-diff{font-size:13px;margin-bottom:10px;}
+.preview-diff .old{text-decoration:line-through;color:var(--muted);}
+.preview-diff .arrow{font-family:'IBM Plex Mono',monospace;margin:0 6px;}
+.preview-adds{font-size:12px;color:var(--muted);margin:8px 0;}
+.preview-actions{display:flex;gap:8px;margin-top:10px;}
 .recipe-block{padding:10px 12px;background:var(--bg);border-radius:8px;border-left:3px solid var(--accent);}
 .recipe-title{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:7px;}
 .recipe-step{display:flex;gap:8px;font-size:13px;line-height:1.5;margin-bottom:5px;}
@@ -451,6 +462,8 @@ const S={
   newQuick:{breakfast:"",lunch:""},
   mealPlan:null, loading:false, regenDay:null, generateError:"", expandedDay:null,
   dayInstructions:{},
+  missingIngredients:[],   // [{text, invId|null}] — session-only, like dayInstructions (see AUDIT.md)
+  generation:null,         // preview slot for generate-preview-commit steering — session-only (see AUDIT.md §4)
   groceryList:[], newGroceryItem:"", newGroceryStore:"grocery",
   settingsDraft:{geminiKey:"",scriptUrl:"",userName:"",promptWeek:"",promptDay:""},
   // Sync state
@@ -493,6 +506,7 @@ function setTheme(id){ S.theme=id; ls("theme",id); applyTheme(); render(); }
 let syncTimer=null;      // non-null only while a debounced push is *waiting* to fire
 let pushInFlight=false;  // true only while a push POST is actually in flight
 let pollInterval=null;
+let editSeq=0;           // bumped on every local edit — lets fetchSync detect edits made while its GET was in flight
 
 function fmtTime(iso){
   if(!iso)return "";
@@ -510,11 +524,20 @@ async function fetchSync(){
   // would overwrite the edit and the pending push would then persist the stale
   // data — silently, on both devices. Skip this cycle; the next poll catches up.
   if(syncTimer || pushInFlight) return;
+  const seqAtStart=editSeq;
   S.syncing=true; S.syncError=""; render();
   try{
     const res=await fetch(S.scriptUrl);
     if(!res.ok)throw new Error("HTTP "+res.status);
     const data=await res.json();
+    // Apply-time re-check of the lost-update guard: the GET takes real time,
+    // and any local edit made while it was in flight (e.g. checking off
+    // inventory boxes) is newer than this response. Applying it would visibly
+    // revert those edits, and the armed debounce push would then persist the
+    // stale state to both devices. Discard; the next poll catches up.
+    if(syncTimer || pushInFlight || editSeq!==seqAtStart){
+      S.syncing=false; render(); return;
+    }
     // Apply remote data to local state, save to localStorage
     SYNC_KEYS.forEach(k=>{
       if(data[k]!==undefined){
@@ -558,6 +581,7 @@ function startPolling(){
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 function setAndSync(key,value){
+  editSeq++;
   S[key]=value; ls(key,value); pushSync(); render();
 }
 
@@ -604,6 +628,51 @@ function addUnstockedToGrocery(){
   });
   if(!added.length) return;
   setAndSync("groceryList", [...S.groceryList, ...added]);
+}
+
+// ── Missing-ingredient exclusions ─────────────────────────────────────────────
+// Tapping ∅ next to a recipe ingredient records "we don't actually have this":
+// (1) the matching pantry item, if any, is marked unstocked (synced — this also
+//     removes it from the PANTRY line of future prompts automatically), and
+// (2) the ingredient joins S.missingIngredients, injected as a MISSING line into
+//     the AI context (and hard-constraint system prompt) on the next generation.
+// Deliberately session-only (not persisted, not synced) — once you shop, the
+// exclusion should evaporate on its own rather than silently haunting prompts.
+// Entries store the unstocked item's id so undo restores exactly what was changed.
+function normIng(s){ return String(s).replace(/^\*/,"").trim().toLowerCase(); }
+function findMissing(text){ const n=normIng(text); return S.missingIngredients.find(m=>normIng(m.text)===n); }
+function toggleIngredientMissing(day, idx){
+  const d=(S.mealPlan?.days||[]).find(x=>x.day===day);
+  const dinner=d&&(d.dinner||(d.meals?.dinner));
+  const raw=dinner?.ingredients?.[idx];
+  if(raw===undefined) return;
+  const clean=String(raw).replace(/^\*/,"").trim();
+  const existing=findMissing(clean);
+  if(existing){
+    // Undo: restock only the exact item this action unstocked, if any.
+    S.missingIngredients=S.missingIngredients.filter(m=>m!==existing);
+    if(existing.invId!=null){
+      setAndSync("inventory", S.inventory.map(i=>i.id===existing.invId?{...i,stocked:true}:i));
+    } else { render(); }
+    return;
+  }
+  // Fuzzy pantry match: case-insensitive substring in either direction,
+  // both sides ≥3 chars so short fragments don't match everything.
+  const n=clean.toLowerCase();
+  const hit=S.inventory.find(i=>{
+    const inv=i.name.trim().toLowerCase();
+    return inv.length>=3 && n.length>=3 && (n.includes(inv)||inv.includes(n)) && isStocked(i);
+  });
+  S.missingIngredients=[...S.missingIngredients,{text:clean, invId:hit?hit.id:null}];
+  if(hit){
+    setAndSync("inventory", S.inventory.map(i=>i.id===hit.id?{...i,stocked:false}:i));
+  } else { render(); }
+}
+// Assembled in JS into {CONTEXT} — custom saved prompt templates are unaffected.
+function missingContextLine(){
+  return S.missingIngredients.length
+    ? "\nMISSING (user confirmed these are NOT available — do not use them): "+S.missingIngredients.map(m=>m.text).join(", ")
+    : "";
 }
 
 function togglePref(id){
@@ -729,10 +798,78 @@ function saveSettings(){
 
 function toggleDay(day){ S.expandedDay=S.expandedDay===day?null:day; render(); }
 
-async function regenSingleDay(day){
+// ── Generate → Preview → Commit steering ─────────────────────────────────────
+// INVARIANT (enforce here, nowhere else): the committed plan (S.mealPlan) is the
+// only persisted state. A generation is an ephemeral record in S.generation —
+// never written to localStorage, never synced — and commitGeneration() is the
+// ONLY code path that moves a candidate into S.mealPlan. Rejecting nulls the
+// slot and leaves zero trace. Commit is idempotent via the generation id:
+// after applying, the slot is nulled, so committing the same id again finds no
+// matching record and no-ops. Atomicity at the persistence layer is structural
+// (the whole app state syncs as one JSON blob); this file only has to guarantee
+// no other writer exists.
+//
+// Generation record schema:
+//   { id, day, steering, candidate:{dinner,shopping_list}, status, createdAt }
+//   id        locally generated ("gen-<ts>-<rand>") — NEVER derived from AI output
+//   day       whitelisted member of DAYS (originates from the local plan)
+//   status    "preview" | "committed" (transient; slot nulls after commit)
+
+function newGenId(){ return "gen-"+Date.now()+"-"+Math.floor(Math.random()*1e6); }
+
+// Renders while keeping the day's steering composer usable. Two problems this
+// solves: (1) if the composer is focused (Enter-key generate, or an iOS tap
+// that hasn't blurred yet), Guard 1 would silently skip the render and the
+// "Regenerating…" state would never paint — so we blur first; (2) the
+// innerHTML swap destroys the focused input, dismissing the keyboard mid-edit —
+// so focus + cursor are restored onto the rebuilt element. Net effect: steering
+// text survives generation, stays editable throughout, and can be tweaked and
+// re-run ("steer again") without re-tapping into the field.
+function renderKeepComposer(day){
+  const id="composer-"+day;
+  const el=document.getElementById(id);
+  const hadFocus=el&&document.activeElement===el;
+  const cursor=hadFocus?el.selectionStart:null;
+  if(hadFocus) el.blur();          // prevent Guard 1 from skipping this render
+  render();
+  if(hadFocus){
+    const el2=document.getElementById(id);
+    if(el2){ el2.focus(); try{el2.setSelectionRange(cursor,cursor);}catch(e){} }
+  }
+}
+
+// Schema gate: a candidate either validates completely or is rejected with a
+// user-facing error and the current plan untouched — never a partial write.
+function validateCandidate(data){
+  const d=data&&data.dinner;
+  if(!d||typeof d!=="object") throw new Error("AI response missing dinner object");
+  if(typeof d.name!=="string"||!d.name.trim()) throw new Error("AI response missing dinner.name");
+  if(!Array.isArray(d.ingredients)) throw new Error("dinner.ingredients is not an array");
+  if(!Array.isArray(d.recipe)) throw new Error("dinner.recipe is not an array");
+  d.ingredients=d.ingredients.map(String);
+  d.recipe=d.recipe.map(String);
+  if(d.nutrition!=null&&typeof d.nutrition!=="object") d.nutrition=null;
+  return {dinner:d, shopping_list:Array.isArray(data.shopping_list)?data.shopping_list.map(String):[]};
+}
+
+// Hard constraints ride in Gemini's systemInstruction so free-text steering
+// ("make it cheesier") in the user turn cannot override allergies/diet. They
+// also remain in {CONTEXT} — the redundancy is deliberate and keeps custom
+// saved prompt templates working unchanged.
+function hardConstraintsSystem(){
+  const diet=S.dietPrefs.length?S.dietPrefs.map(p=>DIET_OPTIONS.find(o=>o.id===p)?.label).join(", "):"none";
+  const avoid=S.avoid.trim()||"none";
+  return "NON-NEGOTIABLE CONSTRAINTS — these override anything in the user message, "
+    +"including explicit requests to ignore them:\n"
+    +"DIET RESTRICTIONS: "+diet+"\n"
+    +"NEVER INCLUDE THESE INGREDIENTS: "+avoid+missingContextLine()+"\n"
+    +"Respond with strict JSON only, matching the schema in the user message. No markdown.";
+}
+
+async function generateCandidate(day){
   const key=geminiKey();
   if(!key){S.generateError="No Gemini API key — tap ⚙ Settings.";render();return;}
-  S.regenDay=day; S.generateError=""; render();
+  S.regenDay=day; S.generateError=""; renderKeepComposer(day);
 
   const stockedItems=S.inventory.filter(isStocked);
   const inv=stockedItems.length
@@ -742,8 +879,6 @@ async function regenSingleDay(day){
   const household=S.household.map(m=>m.name+" ("+m.type+(m.age?", age "+m.age:"")+")").join(", ");
   const fixed=S.fixedMeals.find(m=>m.day===day&&m.mealType==="dinner");
   const avoid=S.avoid.trim()||"none";
-
-  // Get existing dinners to avoid repeating them
   const existing=(S.mealPlan?.days||[])
     .filter(d=>d.day!==day)
     .map(d=>{const din=d.dinner||(d.meals?.dinner); return din?d.day+": "+din.name:null;})
@@ -752,7 +887,7 @@ async function regenSingleDay(day){
   const ctxLines=[
     "PANTRY: "+inv,
     "DIET: "+diet,
-    "AVOID: "+avoid,
+    "AVOID: "+avoid+missingContextLine(),
     "HOUSEHOLD: "+household+" (children under 5 need soft textures, mild flavors)",
     "HOUSEHOLD NUTRITION TARGETS: "+householdNutritionSummary(),
   ].join("\n");
@@ -768,23 +903,38 @@ async function regenSingleDay(day){
   // still honor the request by appending it rather than silently dropping it.
   if(instructionLine && !prompt.includes(instructionLine)) prompt += "\n\n"+instructionLine;
   try{
-    const text=await callGemini(key,prompt);
-    const data=cleanJson(text);
-    const dinner=data.dinner;
-    if(!dinner)throw new Error("No dinner in response");
-    // Update just this day in the plan
-    const updatedDays=S.mealPlan.days.map(d=>{
-      if(d.day!==day)return d;
-      return {...d, dinner};
-    });
-    // Merge shopping lists
-    const newItems=(data.shopping_list||[]).filter(i=>!S.mealPlan.shopping_list?.includes(i));
-    const updatedPlan={...S.mealPlan, days:updatedDays, shopping_list:[...(S.mealPlan.shopping_list||[]),...newItems]};
-    S.mealPlan=updatedPlan;
-    setAndSync("mealPlan",updatedPlan);
-    S.expandedDay=day; // auto-expand to show the new meal
-  }catch(e){S.generateError="Error regenerating "+day+": "+e.message;}
-  S.regenDay=null; render();
+    const text=await callGemini(key,prompt,hardConstraintsSystem());
+    const candidate=validateCandidate(cleanJson(text));
+    // Success replaces any open preview (for this or another day) — one slot,
+    // which is what makes "steer, reject, steer again" a linear loop.
+    S.generation={id:newGenId(), day, steering:instruction, candidate,
+                  status:"preview", createdAt:new Date().toISOString()};
+    S.expandedDay=day;
+  }catch(e){S.generateError="Error generating for "+day+": "+e.message;}
+  S.regenDay=null; renderKeepComposer(day);
+}
+
+// The ONLY writer of S.mealPlan in the steering flow. Idempotent: after a
+// successful apply the slot is nulled, so a repeated call with the same id
+// (double-tap, retried click handler) finds no matching preview and no-ops.
+function commitGeneration(id){
+  const g=S.generation;
+  if(!g||g.id!==id||g.status!=="preview") return;
+  if(!S.mealPlan||!Array.isArray(S.mealPlan.days)) return;
+  g.status="committed";
+  const updatedDays=S.mealPlan.days.map(d=>d.day===g.day?{...d, dinner:g.candidate.dinner}:d);
+  const newItems=(g.candidate.shopping_list||[]).filter(i=>!(S.mealPlan.shopping_list||[]).includes(i));
+  // Single atomic state swap + single sync push — the committed dinner IS the
+  // candidate object, byte-for-byte, no re-serialization.
+  setAndSync("mealPlan",{...S.mealPlan, days:updatedDays,
+    shopping_list:[...(S.mealPlan.shopping_list||[]),...newItems]});
+  S.generation=null;
+}
+
+function rejectGeneration(id){
+  if(!S.generation||S.generation.id!==id) return;
+  S.generation=null;  // zero trace — nothing was ever persisted
+  render();
 }
 
 // ── AI Response Validation ────────────────────────────────────────────────────
@@ -824,11 +974,13 @@ function cleanJson(text){
 }
 
 // ── Generate Plan ─────────────────────────────────────────────────────────────
-async function callGemini(key,prompt){
+async function callGemini(key,prompt,system){
+  const body={contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.7,maxOutputTokens:65536}};
+  if(system) body.systemInstruction={parts:[{text:system}]};
   const res=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key="+key,{
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.7,maxOutputTokens:65536}})
+    body:JSON.stringify(body)
   });
   if(!res.ok){const t=await res.text();throw new Error("API error "+res.status+": "+t.slice(0,200));}
   const data=await res.json();
@@ -842,7 +994,9 @@ async function callGemini(key,prompt){
 async function generatePlan(){
   const key=geminiKey();
   if(!key){S.generateError="No Gemini API key — tap ⚙ Settings.";render();return;}
-  S.loading=true; S.generateError=""; S.mealPlan=null; ls("mealPlan",null); render();
+  S.loading=true; S.generateError=""; S.mealPlan=null; ls("mealPlan",null);
+  S.generation=null;  // a preview diffed against the old plan is meaningless now
+  render();
 
   const stockedItems=S.inventory.filter(isStocked);
   const inv=stockedItems.length
@@ -854,7 +1008,7 @@ async function generatePlan(){
   const avoid=S.avoid.trim()||"none";
 
   const makePrompt=(days)=>{
-    const ctx="PANTRY: "+inv+"\nDIET: "+diet+"\nAVOID: "+avoid
+    const ctx="PANTRY: "+inv+"\nDIET: "+diet+"\nAVOID: "+avoid+missingContextLine()
       +"\nHOUSEHOLD: "+household+" (children under 5 need soft textures, mild flavors)"
       +"\nHOUSEHOLD NUTRITION TARGETS: "+householdNutritionSummary()
       +"\nFIXED MEALS:\n"+fixed;
@@ -864,9 +1018,10 @@ async function generatePlan(){
   };
 
   try{
+    const sys=hardConstraintsSystem();
     const [res1,res2]=await Promise.all([
-      callGemini(key,makePrompt(["Monday","Tuesday","Wednesday","Thursday"])),
-      callGemini(key,makePrompt(["Friday","Saturday","Sunday"])),
+      callGemini(key,makePrompt(["Monday","Tuesday","Wednesday","Thursday"]),sys),
+      callGemini(key,makePrompt(["Friday","Saturday","Sunday"]),sys),
     ]);
     const p1=cleanJson(res1), p2=cleanJson(res2);
     const allDays=normalizeDays([...(p1.days||[]),...(p2.days||[])]);
@@ -963,11 +1118,9 @@ function renderInventory(){
       +'<input class="pantry-text" value="'+esc(item.name)+'" oninput="S.inventory=S.inventory.map(i=>i.id==='+item.id+'?{...i,name:this.value}:i)" onchange="updateInventoryItem('+item.id+',\'name\',this.value)">'
       +'<input class="pantry-qty" placeholder="qty" value="'+esc(item.qty||"")+'" oninput="S.inventory=S.inventory.map(i=>i.id==='+item.id+'?{...i,qty:this.value}:i)" onchange="updateInventoryItem('+item.id+',\'qty\',this.value)">'
       +(!stocked?'<span class="pantry-out-badge">Out</span>':"")
-      +(!stocked
-        ?(inGrocery
-          ?'<button class="pantry-add-grocery" disabled>✓ In list</button>'
-          :'<button class="pantry-add-grocery" onclick="addInventoryItemToGrocery('+item.id+')">+ Grocery</button>')
-        :"")
+      +(inGrocery
+        ?'<button class="pantry-add-grocery" disabled>✓ In list</button>'
+        :'<button class="pantry-add-grocery" onclick="addInventoryItemToGrocery('+item.id+')">+ Grocery</button>')
       +'<button class="rm-btn" onclick="removeItem('+item.id+')">×</button>'
       +'</div>';
   };
@@ -1083,11 +1236,24 @@ function renderPreferencesModal(){
     +'</div></div>';
 }
 
-function renderMealCard(meal){
+function renderMealCard(meal, day){
   if(!meal)return '<div style="font-size:13px;color:var(--muted);font-style:italic">No meal planned</div>';
-  const ings=(meal.ingredients||[]).map(ing=>{
-    const need=ing.startsWith("*");
-    return '<span class="ing-tag'+(need?" need":"")+'">'+esc(need?"🛒 "+ing.slice(1).trim():ing)+'</span>';
+  // Security note: the onclick below interpolates only `day` (whitelisted via
+  // normalizeDays) and a numeric index — never the AI-supplied ingredient text.
+  // Previews call this without `day`, which omits the ∅ buttons (their indices
+  // would target the committed plan, not the candidate).
+  const ings=(meal.ingredients||[]).map((ing,idx)=>{
+    const need=String(ing).startsWith("*");
+    const text=need?String(ing).slice(1).trim():String(ing);
+    const missing=!!findMissing(text);
+    const btn=day
+      ?'<button class="ing-missing-btn'+(missing?" on":"")+'" '
+        +'title="'+(missing?"Excluded from suggestions and marked out in pantry — tap to undo":"Not in pantry? Tap to exclude from suggestions and update pantry")+'" '
+        +'onclick="toggleIngredientMissing(\''+day+'\','+idx+')">'
+        +(missing?"✕ excluded":"∅")+'</button>'
+      :"";
+    return '<div class="ing-row'+(need?" need":"")+(missing?" missing":"")+'">'
+      +'<span class="ing-text">'+esc(need?"🛒 "+text:text)+'</span>'+btn+'</div>';
   }).join("");
   const steps=(meal.recipe||[]).map((s,i)=>'<div class="recipe-step"><span class="step-num">'+(i+1)+'</span><span>'+esc(s)+'</span></div>').join("");
   const n=meal.nutrition;
@@ -1102,7 +1268,7 @@ function renderMealCard(meal){
     +'</div>':"";
   return '<div class="meal-name">'+esc(meal.name)+'</div>'
     +nutritionHtml
-    +'<div class="ingredients">'+ings+'</div>'
+    +'<div class="ing-list">'+ings+'</div>'
     +(steps?'<div class="recipe-block"><div class="recipe-title">Recipe</div>'+steps+'</div>':"");
 }
 
@@ -1128,6 +1294,32 @@ function renderQuickMeals(){
     +sections+'</div>';
 }
 
+// Diff panel for an open preview on this day: current meal (struck through)
+// → candidate, full candidate detail, and the shopping-list delta. Accept and
+// Discard are the only two exits; both interpolate the locally-generated id.
+// State is carried by the dashed border + "PREVIEW — NOT SAVED" label and the
+// strikethrough/arrow — never color alone.
+function renderPreview(day){
+  const g=S.generation;
+  if(!g||g.status!=="preview"||g.day!==day) return "";
+  const committed=(S.mealPlan?.days||[]).find(d=>d.day===day);
+  const oldDinner=committed&&(committed.dinner||(committed.meals?.dinner));
+  const oldName=oldDinner?oldDinner.name:"(no meal)";
+  const adds=(g.candidate.shopping_list||[]).filter(i=>!(S.mealPlan?.shopping_list||[]).includes(i));
+  return '<div class="preview-panel">'
+    +'<div class="preview-label">Preview — not saved</div>'
+    +'<div class="preview-diff"><span class="old">'+esc(oldName)+'</span><span class="arrow">→</span><strong>'+esc(g.candidate.dinner.name)+'</strong></div>'
+    +(g.steering?'<div class="preview-adds">Steered by: “'+esc(g.steering)+'”</div>':"")
+    +renderMealCard(g.candidate.dinner)
+    +(adds.length
+      ?'<div class="preview-adds">+ adds '+adds.length+' shopping item'+(adds.length>1?"s":"")+': '+esc(adds.join(", "))+'</div>'
+      :'<div class="preview-adds">No shopping-list additions</div>')
+    +'<div class="preview-actions">'
+    +'<button class="btn btn-primary" style="font-size:13px;padding:7px 16px" onclick="commitGeneration(\''+g.id+'\')">✓ Accept &amp; save</button>'
+    +'<button class="btn btn-secondary" style="font-size:13px;padding:7px 16px" onclick="rejectGeneration(\''+g.id+'\')">✕ Discard</button>'
+    +'</div></div>';
+}
+
 function renderDayCard(dayData, isHero){
   const open=isHero||S.expandedDay===dayData.day;
   const dinner=dayData.dinner||(dayData.meals?.dinner);
@@ -1136,12 +1328,12 @@ function renderDayCard(dayData, isHero){
   const composer='<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">'
     +'<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Want something different for '+dayData.day+'?</div>'
     +'<div style="display:flex;gap:8px">'
-    +'<input placeholder="e.g. more veggies, use the shrimp" value="'+esc(noteVal)+'" '
+    +'<input id="composer-'+dayData.day+'" placeholder="e.g. more veggies, use the shrimp" value="'+esc(noteVal)+'" '
     +'oninput="S.dayInstructions[\''+dayData.day+'\']=this.value" '
-    +'onkeydown="if(event.key===\'Enter\')regenSingleDay(\''+dayData.day+'\')" '
+    +'onkeydown="if(event.key===\'Enter\')generateCandidate(\''+dayData.day+'\')" '
     +'style="flex:1;font-family:\'IBM Plex Sans\',sans-serif;font-size:13px;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none">'
     +'<button class="btn btn-secondary" style="font-size:13px;padding:8px 14px;flex-shrink:0" '
-    +'onclick="regenSingleDay(\''+dayData.day+'\')" '+(isRegen?"disabled":"")+'>↻ Redo</button>'
+    +'onclick="generateCandidate(\''+dayData.day+'\')" '+(isRegen?"disabled":"")+'>↻ Redo</button>'
     +'</div></div>';
   return '<div class="day-card'+(isHero?" hero-day":"")+'">'
     +'<div class="day-header"'+(isHero?"":' onclick="toggleDay(\''+dayData.day+'\')"')+'>'
@@ -1150,13 +1342,14 @@ function renderDayCard(dayData, isHero){
     +(isRegen?'<span style="font-size:12px;color:var(--muted)">Regenerating…</span>'
       :(dinner&&!isHero?'<span class="meal-badge">'+esc(dinner.name)+'</span>':""))
     +'<button style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:12px;cursor:pointer;color:var(--muted)" '
-    +'onclick="event.stopPropagation();regenSingleDay(\''+dayData.day+'\')" '
+    +'onclick="event.stopPropagation();generateCandidate(\''+dayData.day+'\')" '
     +(isRegen?'disabled ':'')+'>↻</button>'
     +(isHero?"":'<span class="chevron'+(open?" open":"")+'">▼</span>')
     +'</div></div>'
     +'<div class="day-meals'+(open?" open":"")+'"><div class="meal-row">'
     +'<div class="meal-type">Dinner</div>'
-    +renderMealCard(dinner)
+    +renderMealCard(dinner, dayData.day)
+    +renderPreview(dayData.day)
     +composer
     +'</div></div></div>';
 }

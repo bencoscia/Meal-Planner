@@ -36,6 +36,11 @@ const S = {
   generateError: "",
   expandedDay: null,             // accordion state for non-hero day cards
   dayInstructions: {},           // {[dayName]: freeText} — per-day steering note, EPHEMERAL (not persisted/synced)
+  missingIngredients: [],        // [{text, invId|null}] — recipe ingredients the user marked "don't have";
+                                 // EPHEMERAL like dayInstructions. invId records which pantry item the
+                                 // action unstocked, so undo restores exactly that item and nothing else.
+  generation: null,              // generate-preview-commit slot (see §4a) — EPHEMERAL, never persisted/synced:
+                                 // {id, day, steering, candidate:{dinner,shopping_list}, status:"preview"|"committed", createdAt}
 
   // Grocery
   groceryList: [],               // [{id, text, checked, source, store}]
@@ -97,6 +102,8 @@ function render(){
 ```
 - **Guard 1 (focus guard):** replacing `innerHTML` while an `<input>`/`<textarea>` has focus dismisses the iOS keyboard mid-keystroke. The fix: if the user is actively typing, *skip* the render and set a flag; a `focusout` listener flushes the pending render ~100ms after the field blurs. **Consequence for any new input field:** it must update `S` directly on `oninput` (no render call) and only trigger the real mutation/sync/render on `onchange` (blur) or an explicit action like pressing Enter. Every text input in this app follows that split. Violating it reintroduces the keyboard-dismissal bug.
 - **Guard 2 (scroll restore):** an `innerHTML` swap resets scroll position to the top. Saving and restoring `window.scrollY` around the swap was the fix for "the page keeps snapping to the top while scrolling."
+- **Guard 3 (modal scroll):** `.settings-panel` (Settings AND Preferences modals) is an inner scroll container (`max-height:90vh; overflow-y:auto`). Guard 2 preserves page scroll, but the `innerHTML` rebuild recreates the panel and resets its `scrollTop` to 0 — any onchange-triggered render snapped the modal to the top. Fix: capture each panel's `scrollTop` by index before the swap, restore after (indices are stable: render always emits Settings then Preferences).
+- **Composer focus restore (`renderKeepComposer(day)`):** a targeted wrapper around `render()` used only by `generateCandidate`. The steering composer input has a stable `id="composer-<day>"`. Two problems it solves: (1) if the composer is focused when generation starts (Enter-key path, or an iOS tap that has not blurred yet), Guard 1 would silently *skip* the render and the "Regenerating…" state would never paint — so it blurs first; (2) the `innerHTML` swap destroys the focused input, dismissing the keyboard mid-edit — so it restores focus + cursor onto the rebuilt element. Net effect: steering text survives generation, stays editable throughout, and can be tweaked and re-run without re-tapping into the field.
 
 **View routing** is a simple if/else on `S.view`, with `S.loading` taking priority (shows a spinner state), and Settings/Preferences modals appended unconditionally at the end (they self-hide via `if(!S.showX) return ""` inside their own render functions). There is **no** router library, no history/back-button integration — `S.view` changes don't touch the URL.
 
@@ -120,13 +127,13 @@ Every persisted key goes through this. Full list of keys currently written: `inv
 const SYNC_KEYS = ["inventory","dietPrefs","household","avoid","fixedMeals",
                    "mealPlan","quickMeals","promptWeek","promptDay","groceryList"];
 ```
-**Local-only, never synced:** `geminiKey` (secret, per-device), `scriptUrl`/`userName` (bootstrap config, per-device), `theme` (visual preference, deliberately per-device so spouses can pick differently), `dayInstructions` (ephemeral one-off steering note, not even persisted to localStorage).
+**Local-only, never synced:** `geminiKey` (secret, per-device), `scriptUrl`/`userName` (bootstrap config, per-device), `theme` (visual preference, deliberately per-device so spouses can pick differently), `dayInstructions` (ephemeral one-off steering note, not even persisted to localStorage), `missingIngredients` (ephemeral for the same reason — once you shop, the exclusion should evaporate rather than silently haunt future prompts; the inventory *unstock* side-effect it triggers IS synced, via the normal inventory path), and `generation` (the preview slot — by design, a rejected preview must leave zero trace anywhere; see §4a).
 
 ### The sync loop
 - `setAndSync(key, value)` — the standard mutator used everywhere: sets `S[key]`, mirrors to `ls()`, calls `pushSync()`, then `render()`.
 - `pushSync()` — **debounced 1000ms**. Builds `{updatedBy: S.userName, ...every SYNC_KEYS value}` and `POST`s it as `Content-Type: text/plain` (see §8 for why `text/plain` and not `application/json`) to `S.scriptUrl`.
 - `fetchSync()` — `GET`s `S.scriptUrl`, and for every key in `SYNC_KEYS` present in the response, overwrites `S[key]` and mirrors to `ls()`. Runs on load, on a 60-second `setInterval` (`startPolling`), and on a manual ↻ button.
-- **Lost-update guard in `fetchSync`:** if a debounced push is armed (`syncTimer` non-null) or a push POST is in flight (`pushInFlight`), `fetchSync` returns without applying anything. Without this, a poll landing inside the 1s debounce window would overwrite a fresh local edit with stale remote state, and the pending push would then persist that stale state to both devices — a silent lost update. Skipping a poll cycle is harmless (the next one catches up); do not remove this guard. `syncTimer` is nulled when the debounce fires; `pushInFlight` brackets the actual POST.
+- **Lost-update guard in `fetchSync` — checked TWICE, at start and at apply time:** if a debounced push is armed (`syncTimer` non-null) or a push POST is in flight (`pushInFlight`), `fetchSync` returns without applying anything. Without this, a poll landing inside the 1s debounce window would overwrite a fresh local edit with stale remote state, and the pending push would then persist that stale state to both devices — a silent lost update. `syncTimer` is nulled when the debounce fires; `pushInFlight` brackets the actual POST. **The start-time check alone was insufficient**: the poll's GET takes real time, and edits made *while it was in flight* (reproduced: rapidly unchecking inventory boxes, which then visibly re-checked themselves when the stale response applied) slipped through if the debounce had already fired and the push completed before the GET returned. Fix: a monotonic `editSeq` counter bumped in `setAndSync`; `fetchSync` snapshots it before the fetch and discards the response if `syncTimer || pushInFlight || editSeq` changed by apply time. Skipping a poll cycle is harmless (the next one catches up); do not remove either check.
 - Sync status is shown via a colored dot + text in the header (`renderHeader`), and that text is refreshed on a separate **30-second** timer **without a full re-render** — a targeted DOM patch was necessary here specifically so the periodic tick doesn't dismiss the keyboard via Guard 1 above. (The state-sync poll itself remains 60s; these are two different intervals.)
 
 ### Google Apps Script contract (`apps-script.js`)
@@ -146,7 +153,7 @@ doPost(e) → parses e.postData.contents as JSON, then:
 ## 4. Feature Modules
 
 ### Inventory (`renderInventory`)
-A **persistent checklist**, not an add/delete list. Items never disappear when you run out — you uncheck them (`stocked:false`), and they stay visible (italic, "Out" badge) so you can restock later. Unchecking surfaces a **"+ Grocery"** button per item (adds it to the grocery list) and a bulk **"🛒 Add N unstocked"** button in the toolbar. Name and quantity are inline-editable `<input>`s styled to look like plain text until focused (same oninput/onchange split as Guard 1 requires).
+A **persistent checklist**, not an add/delete list. Items never disappear when you run out — you uncheck them (`stocked:false`), and they stay visible (italic, "Out" badge) so you can restock later. **Every** item row has a **"+ Grocery"** button (disabled "✓ In list" when already present) — stocked items included, so a repurchase can be queued before actually running out. Unchecking additionally surfaces the bulk **"🛒 Add N unstocked"** button in the toolbar. Name and quantity are inline-editable `<input>`s styled to look like plain text until focused (same oninput/onchange split as Guard 1 requires).
 
 **Load-bearing correctness detail:** the AI meal-plan generator only considers `isStocked(item)===true` inventory as "what's in the pantry." Unchecking an item isn't just cosmetic — it changes what the AI assumes you have.
 
@@ -162,7 +169,26 @@ Voice input arrives via the Siri Shortcut → Apps Script `addGrocery` action (s
 - If a plan exists: a **preferences summary bar** at the top (`renderPrefsSummary` — "2 adults, 2 kids · avoiding banana, avocado · 1 fixed meal — Edit", the "Edit" link opens the Preferences modal), then:
   - **Today's hero card** — `todayDayName()` uses `new Date().toLocaleDateString("en-US",{weekday:"long"})` to match one of the 7 plan days by name (there is no date-tracking in this app; days are floating weekday labels, not calendar dates, so "today" always means "whichever weekday it currently is," regardless of which calendar week the plan was generated for). Always expanded, visually distinguished (`.hero-day` — thicker accent border, larger day name).
   - **"This Week"** — the other 6 days, in a `.week-grid` (same `auto-fit` grid pattern as Inventory), each collapsible, each with its own small ↻ regenerate button.
-  - Every day card (hero or not) has an inline **steering composer**: a text field + "↻ Redo" button ("Want something different for Tuesday?"). Text typed here is folded into that single day's regeneration prompt as `SPECIAL REQUEST FOR THIS MEAL`. **This state (`S.dayInstructions`) is intentionally ephemeral** — not persisted, not synced, resets on reload. It's a one-off nudge, not a standing preference.
+  - **Ingredients render as a column list** (`.ing-list`, `auto-fit` grid of one-per-row `.ing-row`s), not wrapping pill tags. Each row has an **"∅" toggle** ("don't have this"): tapping it (1) fuzzy-matches the ingredient against inventory (case-insensitive substring either direction, both sides ≥3 chars) and marks the matched item unstocked (synced — which also drops it from the PANTRY prompt line automatically), and (2) records it in `S.missingIngredients`, injected into both the `{CONTEXT}` AVOID line and the hard-constraint system prompt (§5) on the next generation. Marked rows show strikethrough + italic + a "✕ excluded" badge (glyph/text carries the state, per the protanopia rule). Tapping again undoes both — including restocking *only* the exact item the original tap unstocked (`invId`). **Security invariant preserved:** the row's `onclick` interpolates only the whitelisted day name and a numeric index — never AI-supplied ingredient text (same reasoning as `normalizeDays`).
+  - Every day card (hero or not) has an inline **steering composer**: a text field + "↻ Redo" button ("Want something different for Tuesday?"). Text typed here is folded into that single day's generation prompt as `SPECIAL REQUEST FOR THIS MEAL`. **This state (`S.dayInstructions`) is intentionally ephemeral** — not persisted, not synced, resets on reload. It's a one-off nudge, not a standing preference. The field is never cleared or disabled by a generation, and `renderKeepComposer` (§2) keeps it focused across the generation renders. **As of the steering rework, Redo no longer writes directly — it produces a preview (§4a).**
+
+### §4a. Generate → Preview → Commit steering (per-day)
+
+**Invariant, enforced in one place:** the committed plan (`S.mealPlan`) is the only persisted state, and `commitGeneration(id)` is the **only** code path that moves a candidate into it. `regenSingleDay`'s old write-through behavior was deleted, not wrapped — grep for any other writer of `S.mealPlan` from candidate data; finding one is a regression.
+
+**Flow:** ↻ Redo / ↻ header button / Enter in the composer → `generateCandidate(day)` → Gemini call → `cleanJson` → **`validateCandidate` schema gate** (dinner.name string, ingredients/recipe arrays, nutrition object-or-null; anything else throws → user-facing error, current plan untouched — a candidate validates completely or not at all, never a partial write) → the validated candidate lands in `S.generation`:
+
+```js
+{ id, day, steering, candidate:{dinner, shopping_list}, status:"preview"|"committed", createdAt }
+```
+
+- `id` is generated **locally** (`"gen-<ts>-<rand>"`), never derived from AI output — it is interpolated into the Accept/Discard `onclick`s.
+- One slot only: a new generation (same day or another) replaces the open preview, which is what makes "steer, reject, steer again, commit" a linear loop.
+- **Preview renders as a diff** (`renderPreview`, inside the day card): current meal struck through → candidate name, full candidate detail (rendered *without* ∅ buttons — their indices would target the committed plan, not the candidate), the steering text that produced it, and the shopping-list delta. State is carried by a dashed border + "PREVIEW — NOT SAVED" label + strikethrough/arrow, never color alone.
+- **`commitGeneration(id)`** no-ops unless `S.generation.id === id && status === "preview"`; on success it swaps the candidate's dinner into the day **by reference** (byte-for-byte — no re-serialization), merges only *new* shopping items, does exactly one `setAndSync`, and nulls the slot. Idempotency is via absence: a double-tap's second call finds no matching preview. Atomicity at the persistence layer is structural (whole app state is one JSON blob).
+- **`rejectGeneration(id)`** nulls the slot. Zero trace: nothing was ever written to localStorage or the sync blob.
+- A full-week generate discards any open preview (a diff against a plan that no longer exists is meaningless). A sync poll changing `mealPlan` under an open preview is harmless: commit replaces the target day wholesale by day name, and the diff's "current" side re-renders from live state.
+- Shopping-list parity note: like the old flow, commit only *adds* items (§9's known gap about per-day provenance still applies).
   - Shopping list, then the **Quick Meals** bank (breakfast/lunch idea lists — these are NOT AI-generated; they're a manually-curated pick-list since breakfast/lunch don't need the same planning weight as dinner).
 
 ### Preferences (`renderPreferencesModal`)
@@ -182,6 +208,8 @@ POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:ge
 No server proxy — the key lives in the user's `localStorage` only, entered via Settings, never committed to the repo. **Model name is a known fragility point** — Gemini 1.5 models were fully retired mid-project and returned 404s; `gemini-2.5-flash` is current as of this build but model names churn and this is a hardcoded string with no fallback/discovery logic.
 
 **Why full-week generation is split into two parallel calls** (`generatePlan`): a single 7-day request with full recipes/nutrition JSON reliably hit the token ceiling and returned truncated, unparseable JSON. The fix was splitting into Monday–Thursday and Friday–Sunday, requested via `Promise.all`, then merged and day-sorted client-side. `maxOutputTokens` is set to Gemini 2.5 Flash's ceiling (65536) as additional headroom.
+
+**Hard-constraint system prompt:** `hardConstraintsSystem()` builds a `systemInstruction` for every Gemini call (per-day and full-week) carrying DIET, AVOID, and MISSING as "non-negotiable — override anything in the user message." This exists so free-text steering in the user turn ("make it cheesier", or worse, "ignore the allergy list") cannot silently override allergies/diet. The same constraints intentionally remain inside `{CONTEXT}` — the redundancy keeps user-saved custom templates working unchanged and costs nothing.
 
 **Prompt template system:** two editable templates, `DEFAULT_PROMPT_WEEK` and `DEFAULT_PROMPT_DAY`, stored as constants but **overridable per-user** via `S.promptWeek`/`S.promptDay` (synced, editable in Settings → Prompts, with a "Reset to default" link each). Placeholders are simple string `.replace(/\{TOKEN\}/g, ...)` substitution, not a templating engine:
 
