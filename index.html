@@ -234,6 +234,14 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
 .ged-name{flex:1;min-width:0;}
 .ged-qty{width:90px;flex-shrink:0;}
 .ged-btn{padding:7px 11px;font-size:13px;flex-shrink:0;}
+.scan-error{font-size:13px;color:var(--warn);border:1px solid var(--warn-border);background:var(--warn-bg);border-radius:8px;padding:8px 12px;margin-bottom:12px;}
+.scan-review{border:2px dashed var(--accent);border-radius:10px;padding:12px;margin-bottom:16px;background:var(--accent-light);}
+.scan-row{display:flex;gap:6px;align-items:center;margin-bottom:6px;}
+.scan-row.excluded .fi{opacity:0.45;text-decoration:line-through;}
+.scan-inc{display:flex;align-items:center;gap:4px;font-size:11px;font-family:'IBM Plex Mono',monospace;color:var(--muted);flex-shrink:0;width:58px;}
+.scan-text{flex:1;min-width:0;}
+.scan-qty{width:80px;flex-shrink:0;}
+.scan-review-toggle{display:flex;align-items:flex-start;gap:8px;font-size:13px;margin:4px 0;}
 .recipe-block{padding:10px 12px;background:var(--bg);border-radius:8px;border-left:3px solid var(--accent);}
 .recipe-title{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:7px;}
 .recipe-step{display:flex;gap:8px;font-size:13px;line-height:1.5;margin-bottom:5px;}
@@ -474,6 +482,10 @@ const S={
                            // cleared per-entry when its linked pantry item is restocked
   generation:null,         // preview slot for generate-preview-commit steering — session-only (see AUDIT.md §4)
   editingGrocery:null,     // {id,text,qty} in-progress row edit — session-only draft
+  scanning:false,          // paper-list photo → Gemini vision call in flight
+  scanResult:null,         // [{text,qty,include}] parsed from a scan, awaiting review — session-only
+  scanError:"",
+  scanReview:true,         // per-device setting: review parsed items before adding (default ON — safe)
   groceryUndo:null,        // single-slot undo: {label, type:"added"|"removed", ids|items} — session-only,
                            // deliberately NOT synced (the other phone must not be able to undo your action)
   groceryList:[], newGroceryItem:"", newGroceryStore:"grocery",
@@ -501,6 +513,7 @@ function loadAll(){
   S.quickMeals  = ls("quickMeals") || S.quickMeals;
   S.groceryList = ls("groceryList") || [];
   S.missingIngredients = ls("missingIngredients") || [];
+  const sr = ls("scanReview"); S.scanReview = sr===null ? true : !!sr;
   S.promptWeek  = ls("promptWeek") || DEFAULT_PROMPT_WEEK;
   S.promptDay   = ls("promptDay") || DEFAULT_PROMPT_DAY;
   S.scriptUrl   = ls("scriptUrl") || "";
@@ -808,6 +821,95 @@ function clearCheckedGroceries(){
   S.groceryUndo={label:"cleared "+removed.length+" checked", type:"removed", items:removed};
   setAndSync("groceryList", S.groceryList.filter(i=>!i.checked));
 }
+
+// ── Paper-list scanner (photo → Gemini vision → grocery items) ────────────────
+// Flow: hidden <input type=file capture> → handleScanFile downscales the photo
+// on a canvas (phone photos are 3–12 MB; the model needs nowhere near that) →
+// scanImage sends it to Gemini with a transcription prompt → validateScan gates
+// the JSON completely-or-not-at-all → either a review panel (S.scanResult,
+// when S.scanReview is on — the default) or a direct add. Both add paths are
+// deduped case-insensitively and recorded in the grocery undo slot.
+const SCAN_PROMPT='Transcribe this photo of a handwritten grocery/shopping list. '
+  +'Each line or entry becomes one item. Use bare item names; if a quantity is '
+  +'written, put it in qty, otherwise qty is "". Fix obvious spelling. Ignore '
+  +'crossed-out entries, doodles, and non-list text. Respond ONLY with JSON, no markdown: '
+  +'{"items":[{"text":"milk","qty":"2 gal"},{"text":"eggs","qty":""}]} '
+  +'If the photo contains no legible list, respond {"items":[]}';
+
+function validateScan(data){
+  if(!data||!Array.isArray(data.items)) throw new Error("scan response missing items array");
+  const items=data.items.slice(0,80).map(i=>({
+    text:String(i&&i.text||"").trim(),
+    qty:String(i&&i.qty||"").trim(),
+  })).filter(i=>i.text);
+  return items;
+}
+
+function handleScanFile(file){
+  if(!file) return;
+  const key=geminiKey();
+  if(!key){S.scanError="No Gemini API key — tap ⚙ Settings.";render();return;}
+  S.scanning=true; S.scanError=""; S.scanResult=null; render();
+  const img=new Image();
+  const url=URL.createObjectURL(file);
+  img.onload=()=>{
+    URL.revokeObjectURL(url);
+    try{
+      // Downscale to ≤1600px long edge, JPEG q0.8 — plenty for handwriting OCR.
+      const scale=Math.min(1, 1600/Math.max(img.width,img.height));
+      const canvas=document.createElement("canvas");
+      canvas.width=Math.round(img.width*scale);
+      canvas.height=Math.round(img.height*scale);
+      canvas.getContext("2d").drawImage(img,0,0,canvas.width,canvas.height);
+      const base64=canvas.toDataURL("image/jpeg",0.8).split(",")[1];
+      scanImage(base64,"image/jpeg");
+    }catch(e){ S.scanning=false; S.scanError="Could not read that photo: "+e.message; render(); }
+  };
+  img.onerror=()=>{ URL.revokeObjectURL(url); S.scanning=false; S.scanError="That file is not a readable image."; render(); };
+  img.src=url;
+}
+
+async function scanImage(base64, mimeType){
+  const key=geminiKey();
+  try{
+    const text=await callGemini(key,SCAN_PROMPT,null,{mimeType,base64});
+    const items=validateScan(cleanJson(text));
+    if(!items.length){ S.scanning=false; S.scanError="No legible items found in that photo."; render(); return; }
+    S.scanning=false;
+    if(S.scanReview){
+      S.scanResult=items.map(i=>({...i,include:true}));   // review before touching shared state
+      render();
+    }else{
+      addScannedItems(items);
+    }
+  }catch(e){ S.scanning=false; S.scanError="Scan failed: "+e.message; render(); }
+}
+
+// The single writer for scanned items → grocery list. Deduped, one setAndSync,
+// undoable via the standard grocery undo slot.
+function addScannedItems(items){
+  const seen=new Set(S.groceryList.map(g=>g.text.trim().toLowerCase()));
+  const added=[];
+  items.forEach((it,i)=>{
+    const norm=it.text.toLowerCase();
+    if(seen.has(norm)) return;
+    seen.add(norm);
+    added.push({id:Date.now()+i, text:it.text, qty:it.qty, checked:false, source:"scan", store:"either"});
+  });
+  S.scanResult=null;
+  if(!added.length){ S.scanError="Everything on that list is already here."; render(); return; }
+  S.groceryUndo={label:"added "+added.length+" from scan", type:"added", ids:added.map(a=>a.id)};
+  setAndSync("groceryList", [...S.groceryList, ...added]);
+}
+
+function commitScan(){ if(S.scanResult) addScannedItems(S.scanResult.filter(i=>i.include)); }
+function cancelScan(){ S.scanResult=null; S.scanError=""; render(); }
+function toggleScanItem(idx){
+  if(!S.scanResult||!S.scanResult[idx]) return;
+  S.scanResult[idx].include=!S.scanResult[idx].include;
+  render();
+}
+function setScanReview(on){ S.scanReview=!!on; ls("scanReview",S.scanReview); render(); }
 
 // ── Grocery undo ──────────────────────────────────────────────────────────────
 // Single session-local slot covering the batch/destructive operations: plan
@@ -1121,8 +1223,11 @@ function cleanJson(text){
 }
 
 // ── Generate Plan ─────────────────────────────────────────────────────────────
-async function callGemini(key,prompt,system){
-  const body={contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.7,maxOutputTokens:65536}};
+async function callGemini(key,prompt,system,image){
+  // image (optional): {mimeType, base64} sent as an inline_data part ahead of
+  // the text — used by the paper-list scanner. gemini-2.5-flash is multimodal.
+  const parts=image?[{inline_data:{mime_type:image.mimeType,data:image.base64}},{text:prompt}]:[{text:prompt}];
+  const body={contents:[{parts}],generationConfig:{temperature:0.7,maxOutputTokens:65536}};
   if(system) body.systemInstruction={parts:[{text:system}]};
   const res=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key="+key,{
     method:"POST",
@@ -1569,6 +1674,29 @@ function renderPlanTab(){
     +'</div>';
 }
 
+// Review panel for a scanned paper list: every parsed item is editable (text
+// + qty inputs bound to S.scanResult — no render while typing, Guard 1) and
+// individually excludable before anything touches the shared grocery list.
+// Dashed border + explicit label, same not-yet-saved language as previews.
+function renderScanReview(){
+  const r=S.scanResult;
+  if(!r) return "";
+  const n=r.filter(i=>i.include).length;
+  const rows=r.map((it,idx)=>
+    '<div class="scan-row'+(it.include?"":" excluded")+'">'
+    +'<label class="scan-inc"><input type="checkbox" '+(it.include?"checked":"")+' onchange="toggleScanItem('+idx+')"><span>'+(it.include?"add":"skip")+'</span></label>'
+    +'<input class="fi scan-text" value="'+esc(it.text)+'" '+(it.include?"":"disabled ")+'oninput="S.scanResult['+idx+'].text=this.value">'
+    +'<input class="fi scan-qty" value="'+esc(it.qty)+'" placeholder="qty" '+(it.include?"":"disabled ")+'oninput="S.scanResult['+idx+'].qty=this.value">'
+    +'</div>').join("");
+  return '<div class="scan-review">'
+    +'<div class="preview-label">Scanned list — review before adding</div>'
+    +rows
+    +'<div class="preview-actions">'
+    +'<button class="btn btn-primary" style="font-size:13px;padding:7px 16px" onclick="commitScan()" '+(n?"":"disabled")+'>✓ Add '+n+' item'+(n===1?"":"s")+'</button>'
+    +'<button class="btn btn-secondary" style="font-size:13px;padding:7px 16px" onclick="cancelScan()">✕ Discard</button>'
+    +'</div></div>';
+}
+
 function renderGrocery(){
   const unchecked=S.groceryList.filter(i=>!i.checked);
   const checked=S.groceryList.filter(i=>i.checked);
@@ -1623,6 +1751,10 @@ function renderGrocery(){
     +'<button class="grocery-store-tag" onclick="cycleNewGroceryStore()" title="Tap to change store" style="flex-shrink:0">'+storeLabel(S.newGroceryStore)+'</button>'
     +'<button class="btn btn-primary" onclick="addGroceryFromInput()">+ Add</button>'
     +'</div>'
+    +'<input type="file" id="scan-input" accept="image/*" capture="environment" style="display:none" onchange="handleScanFile(this.files[0]);this.value=\'\'">'
+    +'<button class="btn btn-secondary" style="font-size:13px;margin-bottom:16px;margin-right:8px" '+(S.scanning?"disabled":"")+' onclick="document.getElementById(\'scan-input\').click()">'+(S.scanning?"⏳ Reading photo…":"📷 Scan paper list")+'</button>'
+    +(S.scanError?'<div class="scan-error">⚠ '+esc(S.scanError)+'</div>':"")
+    +renderScanReview()
     +(hasPlanItems?'<button class="btn btn-secondary" style="font-size:13px;margin-bottom:16px;margin-right:8px" onclick="importPlanGroceries()">↓ Add items from meal plan</button>':"")
     +(S.groceryUndo?'<button class="btn btn-secondary" style="font-size:13px;margin-bottom:16px" onclick="undoGroceryAction()">↶ Undo: '+esc(S.groceryUndo.label)+'</button>':"")
     +(unchecked.length
@@ -1661,6 +1793,9 @@ function renderSettings(){
     +'<div class="field"><label>Gemini API Key</label>'
     +'<input type="password" placeholder="AIza..." value="'+esc(S.settingsDraft.geminiKey)+'" oninput="S.settingsDraft.geminiKey=this.value.trim()">'
     +'<div class="field-note">Stored only in this browser. Get a free key at <a href="https://aistudio.google.com" target="_blank" style="color:var(--accent)">aistudio.google.com</a></div></div>'
+
+    +'<label class="scan-review-toggle"><input type="checkbox" '+(S.scanReview?"checked":"")+' onchange="setScanReview(this.checked)"> Review scanned paper lists before adding to the grocery list</label>'
+    +'<div class="field-note" style="margin-bottom:8px">Saved on this device only. When off, scanned items are added immediately (still undoable).</div>'
 
     +'<div class="settings-section">Sync</div>'
     +'<p class="settings-desc" style="margin-bottom:16px">Connect a Google Sheet to sync everything between you and your wife. <a href="https://script.google.com" target="_blank" style="color:var(--accent)">Set up in Google Apps Script →</a></p>'
