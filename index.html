@@ -754,6 +754,15 @@ function removeGroceryItem(id){
 function clearCheckedGroceries(){
   setAndSync("groceryList", S.groceryList.filter(i=>!i.checked));
 }
+// ── Shopping-list provenance ──────────────────────────────────────────────────
+// shopping_list items are {text, day|null}: day names the steering commit that
+// produced the item; day:null means "from a full-week generate" (not
+// attributable to one day). Plans persisted/synced before this change hold
+// plain strings — shopText() is the single read-side normalizer, and legacy
+// strings behave exactly like the old code did (never removed by a per-day
+// commit; cured by the next full-week generate). No migration pass needed.
+function shopText(i){ return typeof i==="string"?i:String(i&&i.text||""); }
+
 // Pulls the AI-generated shopping list from the current meal plan into the
 // grocery list, skipping anything already present (case-insensitive).
 function importPlanGroceries(){
@@ -762,10 +771,10 @@ function importPlanGroceries(){
   const seen=new Set(S.groceryList.map(i=>i.text.trim().toLowerCase()));
   const added=[];
   list.forEach((t,i)=>{
-    const norm=String(t).trim().toLowerCase();
+    const norm=shopText(t).trim().toLowerCase();
     if(!norm||seen.has(norm)) return;
     seen.add(norm);
-    added.push({id:Date.now()+i, text:String(t).trim(), checked:false, source:"plan", store:"either"});
+    added.push({id:Date.now()+i, text:shopText(t).trim(), checked:false, source:"plan", store:"either"});
   });
   if(!added.length) return;
   setAndSync("groceryList", [...S.groceryList, ...added]);
@@ -928,11 +937,24 @@ function commitGeneration(id){
   if(!S.mealPlan||!Array.isArray(S.mealPlan.days)) return;
   g.status="committed";
   const updatedDays=S.mealPlan.days.map(d=>d.day===g.day?{...d, dinner:g.candidate.dinner}:d);
-  const newItems=(g.candidate.shopping_list||[]).filter(i=>!(S.mealPlan.shopping_list||[]).includes(i));
+  // Provenance swap: drop shopping items this day's previous steering commits
+  // produced (the replaced meal's ingredients), keep everything else — legacy
+  // strings, day:null week items, other days' items — then append the
+  // candidate's items tagged with this day, deduped against what remains.
+  // This is what stops repeated steer→commit cycles from accumulating
+  // ingredients of every discarded dinner version.
+  const kept=(S.mealPlan.shopping_list||[]).filter(i=>!(typeof i==="object"&&i&&i.day===g.day));
+  const seen=new Set(kept.map(i=>shopText(i).trim().toLowerCase()));
+  const added=[];
+  (g.candidate.shopping_list||[]).forEach(t=>{
+    const text=String(t).trim(), norm=text.toLowerCase();
+    if(!norm||seen.has(norm)) return;
+    seen.add(norm);
+    added.push({text, day:g.day});
+  });
   // Single atomic state swap + single sync push — the committed dinner IS the
   // candidate object, byte-for-byte, no re-serialization.
-  setAndSync("mealPlan",{...S.mealPlan, days:updatedDays,
-    shopping_list:[...(S.mealPlan.shopping_list||[]),...newItems]});
+  setAndSync("mealPlan",{...S.mealPlan, days:updatedDays, shopping_list:[...kept,...added]});
   S.generation=null;
 }
 
@@ -1031,7 +1053,8 @@ async function generatePlan(){
     const p1=cleanJson(res1), p2=cleanJson(res2);
     const allDays=normalizeDays([...(p1.days||[]),...(p2.days||[])]);
     allDays.sort((a,b)=>DAYS.indexOf(a.day)-DAYS.indexOf(b.day));
-    const shopping=[...new Set([...(p1.shopping_list||[]),...(p2.shopping_list||[])])];
+    const shopping=[...new Set([...(p1.shopping_list||[]),...(p2.shopping_list||[])]
+      .map(t=>String(t).trim()).filter(Boolean))].map(text=>({text, day:null}));
     // Normalise: support both {dinner:{...}} and {meals:{dinner:{...}}} from Gemini
     allDays.forEach(d=>{
       if(!d.dinner && d.meals?.dinner) d.dinner=d.meals.dinner;
@@ -1320,15 +1343,21 @@ function renderPreview(day){
   const committed=(S.mealPlan?.days||[]).find(d=>d.day===day);
   const oldDinner=committed&&(committed.dinner||(committed.meals?.dinner));
   const oldName=oldDinner?oldDinner.name:"(no meal)";
-  const adds=(g.candidate.shopping_list||[]).filter(i=>!(S.mealPlan?.shopping_list||[]).includes(i));
+  const current=S.mealPlan?.shopping_list||[];
+  const candNorm=new Set((g.candidate.shopping_list||[]).map(t=>String(t).trim().toLowerCase()));
+  // Removals: items this day's previous commit produced that the candidate no
+  // longer needs. Adds: candidate items not already on the list from any source.
+  const removes=current.filter(i=>typeof i==="object"&&i&&i.day===day&&!candNorm.has(shopText(i).trim().toLowerCase())).map(shopText);
+  const curNorm=new Set(current.map(i=>shopText(i).trim().toLowerCase()));
+  const adds=(g.candidate.shopping_list||[]).map(t=>String(t).trim()).filter(t=>t&&!curNorm.has(t.toLowerCase()));
   return '<div class="preview-panel" id="preview-'+day+'">'
     +'<div class="preview-label">Preview — not saved</div>'
     +'<div class="preview-diff"><span class="old">'+esc(oldName)+'</span><span class="arrow">→</span><strong>'+esc(g.candidate.dinner.name)+'</strong></div>'
     +(g.steering?'<div class="preview-adds">Steered by: “'+esc(g.steering)+'”</div>':"")
     +renderMealCard(g.candidate.dinner)
-    +(adds.length
-      ?'<div class="preview-adds">+ adds '+adds.length+' shopping item'+(adds.length>1?"s":"")+': '+esc(adds.join(", "))+'</div>'
-      :'<div class="preview-adds">No shopping-list additions</div>')
+    +(adds.length?'<div class="preview-adds">+ adds: '+esc(adds.join(", "))+'</div>':"")
+    +(removes.length?'<div class="preview-adds">− removes (from the replaced meal): '+esc(removes.join(", "))+'</div>':"")
+    +(!adds.length&&!removes.length?'<div class="preview-adds">No shopping-list changes</div>':"")
     +'<div class="preview-actions">'
     +'<button class="btn btn-primary" style="font-size:13px;padding:7px 16px" onclick="commitGeneration(\''+g.id+'\')">✓ Accept &amp; save</button>'
     +'<button class="btn btn-secondary" style="font-size:13px;padding:7px 16px" onclick="rejectGeneration(\''+g.id+'\')">✕ Discard</button>'
@@ -1403,7 +1432,7 @@ function renderPlanTab(){
 
   const shopping=S.mealPlan.shopping_list?.length
     ?'<div class="shopping-card"><div class="shopping-title">🛒 Shopping List</div><div class="shopping-grid">'
-      +S.mealPlan.shopping_list.map(i=>'<span class="shop-item">'+esc(i)+'</span>').join("")
+      +S.mealPlan.shopping_list.map(i=>'<span class="shop-item">'+esc(shopText(i))+'</span>').join("")
       +'</div></div>':"";
 
   return '<div class="content">'
