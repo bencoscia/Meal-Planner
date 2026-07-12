@@ -50,6 +50,7 @@ const S = {
   scanResult: null,              // [{text,qty,include}] parsed scan awaiting review — session-only
   scanError: "",                 // scan failure banner text
   scanReview: true,              // PER-DEVICE setting (localStorage, not synced): review scans before adding
+  groceryFilter: "all",          // "all"|"grocery"|"costco" — PER-DEVICE trip-mode view filter, persisted
   groceryUndo: null,             // single-slot grocery undo {label,type:"added"|"removed",ids|items} —
                                  // session-only, deliberately NOT synced (the other phone must not be
                                  // able to undo your action). See §4 Grocery.
@@ -162,6 +163,10 @@ doPost(e) → parses e.postData.contents as JSON, then:
               else: shallow Object.assign(existing, incoming, {lastUpdated, lastUpdatedBy})
 ```
 **Every `doPost` call is wrapped in `LockService.getScriptLock()`.** This exists specifically because a Siri-triggered `addGrocery` call and a normal app `pushSync()` can land within the same second, and without a lock, a naive read-modify-write race could let one silently clobber the other's write.
+
+**Duplicate policy: every path into the grocery list dedupes case-insensitively** — manual add, plan import, scan add, ∅ mark, bulk-unstocked, undo re-add, and the Siri path (server-side). The one historical hole was the ✎ edit: renaming could mint a duplicate ("chikn"→"chicken" with "chicken" already present). `commitGroceryEdit` now **merges on rename collision**: the edited row wins (its id, checked state, source, store), the other copy is dropped, and a non-empty qty is inherited from either side.
+
+**Store filter (`S.groceryFilter`, per-device, persisted):** a segmented All / 🏪 Grocery / 📦 Costco control with live counts at the top of the Grocery tab — "I'm at Costco, show me only that list." `"either"` items appear under both single-store views (same membership rule the two sections always used). Filter state survives PWA reloads mid-trip; it's never mysterious because the control, its counts, the "N to get at Costco" toolbar text, and a filtered-empty hint ("tap All to see everything") all carry it. Switching to a single-store filter also points the add-row's store selector at that store, so a newly added item can't silently land on the hidden list. **`clearCheckedGroceries` respects the filter** — clearing while viewing Costco never deletes checked items hidden on the other list (and is undoable regardless).
 
 **Grocery items now carry an optional `qty` field** (free text, e.g. "2 lbs"), rendered muted after the name ("salmon · 2 lbs"); absent on old items and harmless to old clients. **Inline edit:** the ✎ button on each row opens name + qty inputs bound to the session draft `S.editingGrocery` (no render while typing — Guard 1); Enter/✓ commits via one `setAndSync`, ✕/Escape cancels. Guards: an empty name never commits; an item deleted remotely mid-edit is not resurrected (edit silently closes).
 
