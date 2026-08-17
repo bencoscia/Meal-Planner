@@ -145,7 +145,7 @@ const SYNC_KEYS = ["inventory","dietPrefs","household","avoid","fixedMeals",
 ```
 **Local-only, never synced:** `geminiKey` (secret, per-device), `scriptUrl`/`userName` (bootstrap config, per-device), `theme` (visual preference, deliberately per-device so spouses can pick differently), `dayInstructions` (ephemeral one-off steering note, not even persisted to localStorage), and `generation` (the preview slot — by design, a rejected preview must leave zero trace anywhere; see §4a).
 
-**`missingIngredients` moved from local-ephemeral to synced.** The original "evaporates when you shop" lifetime was implemented as page-lifetime — wrong: iOS PWA reloads wiped it mid-week and ∅-excluded ingredients reappeared in regens (the "salmon returns" bug). It now persists and syncs (both people share "we don't have salmon"), and the evaporate intent is tied to explicit events instead: restocking the linked pantry item (`toggleStocked`) or manual ∅ undo clears the entry. Old-version compat is safe in both directions: old `fetchSync` ignores unknown keys, and the Apps Script shallow merge preserves keys absent from an old client's push.
+**`missingIngredients` moved from local-ephemeral to synced.** The original "evaporates when you shop" lifetime was implemented as page-lifetime — wrong: iOS PWA reloads wiped it mid-week and ∅-excluded ingredients reappeared in regens (the "salmon returns" bug). It now persists and syncs (both people share "we don't have salmon"), and the evaporate intent is tied to explicit events instead: restocking the linked pantry item (via `cycleInventoryState` Skip→In stock transition, or the recipe ∅ undo path) or manual ∅ undo clears the entry. Old-version compat is safe in both directions: old `fetchSync` ignores unknown keys, and the Apps Script shallow merge preserves keys absent from an old client's push.
 
 ### The sync loop
 - `setAndSync(key, value)` — the standard mutator used everywhere: sets `S[key]`, mirrors to `ls()`, calls `pushSync()`, then `render()`.
@@ -183,9 +183,20 @@ doPost(e) → parses e.postData.contents as JSON, then:
 ## 4. Feature Modules
 
 ### Inventory (`renderInventory`)
-A **persistent checklist**, not an add/delete list. Items never disappear when you run out — you uncheck them (`stocked:false`), and they stay visible (italic, "Out" badge) so you can restock later. **Every** item row has a **"+ Grocery"** button (disabled "✓ In list" when already present) — stocked items included, so a repurchase can be queued before actually running out. Unchecking additionally surfaces the bulk **"🛒 Add N unstocked"** button in the toolbar. Name and quantity are inline-editable `<input>`s styled to look like plain text until focused (same oninput/onchange split as Guard 1 requires).
+A **persistent catalog**, not a real-time stock tracker. Items never disappear — they're always visible as a scannable reference. The old stocked/unstocked checkbox was replaced by a **3-state cycling button** per item (`cycleInventoryState`), same interaction pattern as `cycleGroceryStore`:
 
-**Load-bearing correctness detail:** the AI meal-plan generator only considers `isStocked(item)===true` inventory as "what's in the pantry." Unchecking an item isn't just cosmetic — it changes what the AI assumes you have.
+1. **In stock** (default) — normal text, muted "🛒 Need" button. AI uses this ingredient.
+2. **Need** — tap → marks `stocked:false` + adds to grocery list. Italic text, accent-colored "✓ On list" badge. AI excludes.
+3. **Skip** — tap again → removes from grocery list, stays `stocked:false`. Italic text, warn-colored "— Skip" badge. AI still excludes. Use case: out of stock but not buying this trip (seasonal, other store, skipping this week).
+4. Tap again → back to **In stock** (`stocked:true`), clears any linked `missingIngredients` entries (same cleanup `toggleStocked` used to do).
+
+State is conveyed by text style (normal vs italic) + badge text ("On list" / "Skip" / "Need"), never color alone (protanopia rule). Skip state is derived (`stocked===false && not on grocery list`), not a new field. A bulk **"🛒 Add N skipped"** button in the toolbar converts all Skip items to Need (adds them to grocery). Name and quantity remain inline-editable `<input>`s (same oninput/onchange split as Guard 1 requires).
+
+**Categories** expanded from 7 to 11: Produce, Protein, Dairy, Grains, Pantry, **Snacks**, Frozen, **Beverages**, **Health & Baby**, **Household**, Other. Non-food items (toiletries, cleaning supplies, etc.) sit in the inventory grid; the AI ignores them naturally since they're not ingredients.
+
+**Costco migration (`migrateInventory`):** a one-time merge on load (gated by `seedMigrated_v2` localStorage flag) adds any SEED items not already present in the running inventory, case-insensitive name dedup. The SEED array is now a comprehensive ~247-item catalog covering all Costco categories plus kitchen staples.
+
+**Load-bearing correctness detail:** the AI meal-plan generator only considers `isStocked(item)===true` inventory as "what's in the pantry." The Need and Skip states both set `stocked:false` — this isn't cosmetic, it changes what the AI assumes you have.
 
 Wide-screen layout: pantry categories render into `.pantry-grid` (`grid-template-columns:repeat(auto-fit,minmax(260px,1fr))`), letting multiple category cards sit side-by-side on desktop while collapsing to one column on narrow viewports automatically (no separate media query needed for the column count — `auto-fit` handles it).
 
@@ -266,7 +277,7 @@ Both templates end with an explicit JSON schema and "no markdown" instruction. T
 
 **Theme system:** CSS custom properties on `:root` (default = Slate) with `[data-theme="x"]` override blocks. `document.body.dataset.theme` is set by `applyTheme()` on load and by `setTheme(id)` on user selection. Token set per theme (15 variables): `--bg --surface --border --text --muted --accent --accent-light --accent2 --accent2-light --danger --danger-bg --danger-border --warn --warn-bg --warn-border --header-bg --header-text --header-muted`. **Every** color in every component rule derives from these tokens — there are no hardcoded hex literals in component CSS **or in JS-generated inline styles** (audit note: if you find one, it's a regression — the last four found were `#b8a898` remnants of the old warm theme, hiding in `renderHeader` and the 30s header patch, not in the stylesheet; there was a deliberate pass to eliminate hardcoded pastel colors from the nutrition badges, error banners, and status dots specifically because they broke visually under the dark themes otherwise).
 
-Seven themes ship: **Slate** (cool default), **Ink** (warm dark), **Cobalt** (cool dark), **Citrus** (bright/warm), **Clay** (muted/warm-sophisticated), **Birch** (soft/minimal-violet), **Fog** (minimal/denim). **Deliberately avoid pairing red and green as a meaningful signal anywhere**, in any theme — the end user has protanopia. State (checked/unchecked, stocked/out, sync live/error) is always carried by a glyph, badge text, italics, or strikethrough *first*, with color as reinforcement only, never the sole signal.
+Seven themes ship: **Slate** (cool default), **Ink** (warm dark), **Cobalt** (cool dark), **Citrus** (bright/warm), **Clay** (muted/warm-sophisticated), **Birch** (soft/minimal-violet), **Fog** (minimal/denim). **Deliberately avoid pairing red and green as a meaningful signal anywhere**, in any theme — the end user has protanopia. State (need/skip/stocked, grocery checked/unchecked, sync live/error) is always carried by a glyph, badge text, italics, or strikethrough *first*, with color as reinforcement only, never the sole signal.
 
 **Signature interactive element:** the checkbox (Pantry + Grocery). An empty bordered square that fills solid with `var(--accent)` and reveals a white inline-SVG checkmark (not a Unicode glyph — font-dependent glyph weight/shape was inconsistent) on check, with a quick scale-in transition. (An earlier version tried a rotated Unicode ✓ with a text-shadow to fake a "rubber stamp" look; it read as visually broken rather than intentional and was replaced.)
 

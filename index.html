@@ -129,27 +129,28 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
 .pantry-item, .grocery-item{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--border);}
 .pantry-item:last-child, .grocery-item:last-child{border-bottom:none;}
 .grocery-item.checked .grocery-text{text-decoration:line-through;color:var(--muted);}
-.pantry-item:not(.stocked) .pantry-text{font-style:italic;color:var(--muted);}
-.pantry-check, .grocery-check{display:inline-flex;cursor:pointer;flex-shrink:0;}
-.pantry-checkmark, .grocery-checkmark{
+.pantry-item.unstocked .pantry-text{font-style:italic;color:var(--muted);}
+.grocery-check{display:inline-flex;cursor:pointer;flex-shrink:0;}
+.grocery-checkmark{
   width:22px;height:22px;border:2px solid var(--border);border-radius:6px;
   display:flex;align-items:center;justify-content:center;
   background:var(--surface);transition:all 0.15s;
 }
-.pantry-checkmark svg, .grocery-checkmark svg{width:13px;height:13px;opacity:0;transform:scale(0.6);transition:opacity 0.15s,transform 0.15s;}
-.pantry-item.stocked .pantry-checkmark, .grocery-item.checked .grocery-checkmark{
+.grocery-checkmark svg{width:13px;height:13px;opacity:0;transform:scale(0.6);transition:opacity 0.15s,transform 0.15s;}
+.grocery-item.checked .grocery-checkmark{
   background:var(--accent); border-color:var(--accent);
 }
-.pantry-item.stocked .pantry-checkmark svg, .grocery-item.checked .grocery-checkmark svg{opacity:1;transform:scale(1);}
+.grocery-item.checked .grocery-checkmark svg{opacity:1;transform:scale(1);}
 .pantry-text, .grocery-text{flex:1;min-width:0;font-size:14px;}
 .pantry-text{font-family:'IBM Plex Sans',sans-serif;color:var(--text);border:none;background:transparent;padding:3px 5px;border-radius:5px;outline:none;}
 .pantry-text:focus{background:var(--bg);box-shadow:0 0 0 1.5px var(--accent);font-style:normal;}
 .pantry-qty{font-family:'IBM Plex Mono',monospace;color:var(--muted);font-size:12px;width:66px;flex-shrink:0;border:none;background:transparent;padding:3px 5px;border-radius:5px;outline:none;text-align:right;}
 .pantry-qty:focus{background:var(--bg);box-shadow:0 0 0 1.5px var(--accent);color:var(--text);text-align:left;}
 .pantry-qty::placeholder{color:var(--border);}
-.pantry-out-badge{font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:var(--warn);background:var(--warn-bg);border:1px solid var(--warn-border);border-radius:6px;padding:2px 7px;flex-shrink:0;}
-.pantry-add-grocery{font-size:11px;font-weight:600;padding:4px 10px;border-radius:14px;border:1px solid var(--accent);background:var(--accent-light);color:var(--accent);cursor:pointer;flex-shrink:0;white-space:nowrap;}
-.pantry-add-grocery:disabled{opacity:0.6;cursor:default;border-color:var(--border);background:var(--bg);color:var(--muted);}
+.pantry-state-btn{font-family:'IBM Plex Sans',sans-serif;font-size:11px;font-weight:600;padding:4px 10px;border-radius:14px;cursor:pointer;flex-shrink:0;white-space:nowrap;transition:all 0.15s;border:1px solid var(--border);background:var(--bg);color:var(--muted);}
+.pantry-state-btn:hover{border-color:var(--accent);color:var(--accent);}
+.pantry-state-btn.need{border-color:var(--accent);background:var(--accent-light);color:var(--accent);}
+.pantry-state-btn.skip{border-color:var(--warn-border);background:var(--warn-bg);color:var(--warn);}
 .grocery-source{font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:2px 7px;flex-shrink:0;}
 .grocery-store-tag{font-family:'IBM Plex Sans',sans-serif;font-size:11px;font-weight:600;color:var(--accent);background:var(--accent-light);border:1px solid var(--accent);border-radius:14px;padding:3px 10px;flex-shrink:0;cursor:pointer;white-space:nowrap;transition:all 0.15s;}
 .grocery-store-tag:hover{filter:brightness(0.95);}
@@ -325,7 +326,7 @@ const THEMES=[
   {id:"clay",label:"Clay",bg:"#f2ece4",accent:"#a1553c",accent2:"#5f7a8a"},
   {id:"birch",label:"Birch",bg:"#faf9fb",accent:"#6a5b8a",accent2:"#c98a4a"},
 ];
-const CATEGORIES=["Produce","Protein","Dairy","Grains","Pantry","Frozen","Other"];
+const CATEGORIES=["Produce","Protein","Dairy","Grains","Pantry","Snacks","Frozen","Beverages","Health & Baby","Household","Other"];
 const DAYS=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 const DIET_OPTIONS=[
   {id:"vegetarian",label:"Vegetarian",emoji:"🌿"},
@@ -336,27 +337,149 @@ const DIET_OPTIONS=[
   {id:"nut_free",label:"Nut-Free",emoji:"🥜"},
 ];
 const SEED=[
-  {id:1,name:"Chicken breasts",qty:"",category:"Protein"},{id:2,name:"Chicken thighs",qty:"",category:"Protein"},
-  {id:3,name:"Pork chops",qty:"",category:"Protein"},{id:4,name:"Salmon fillets",qty:"",category:"Protein"},
-  {id:5,name:"Canned tuna",qty:"",category:"Protein"},{id:6,name:"Shrimp",qty:"",category:"Protein"},
-  {id:7,name:"Eggs",qty:"",category:"Protein"},{id:8,name:"Firm tofu",qty:"",category:"Protein"},
-  {id:9,name:"Canned chickpeas",qty:"",category:"Protein"},{id:10,name:"Canned black beans",qty:"",category:"Protein"},
-  {id:11,name:"Lentils",qty:"",category:"Protein"},{id:12,name:"Onions",qty:"",category:"Produce"},
-  {id:13,name:"Carrots",qty:"",category:"Produce"},{id:14,name:"Cherry tomatoes",qty:"",category:"Produce"},
-  {id:15,name:"Potatoes",qty:"",category:"Produce"},{id:16,name:"Sweet potatoes",qty:"",category:"Produce"},
-  {id:17,name:"Minced garlic",qty:"",category:"Produce"},{id:18,name:"Butter",qty:"",category:"Dairy"},
-  {id:19,name:"Milk",qty:"",category:"Dairy"},{id:20,name:"Parmesan",qty:"",category:"Dairy"},
-  {id:21,name:"Cheddar",qty:"",category:"Dairy"},{id:22,name:"Greek yogurt",qty:"",category:"Dairy"},
-  {id:23,name:"Brown rice",qty:"",category:"Grains"},{id:24,name:"Pasta",qty:"",category:"Grains"},
-  {id:25,name:"Bread",qty:"",category:"Grains"},{id:26,name:"Oats",qty:"",category:"Grains"},
-  {id:27,name:"Panko breadcrumbs",qty:"",category:"Grains"},{id:28,name:"Olive oil",qty:"",category:"Pantry"},
-  {id:29,name:"Soy sauce",qty:"",category:"Pantry"},{id:30,name:"Diced tomatoes (canned)",qty:"",category:"Pantry"},
-  {id:31,name:"Chicken stock",qty:"",category:"Pantry"},{id:32,name:"Dijon mustard",qty:"",category:"Pantry"},
-  {id:33,name:"Honey",qty:"",category:"Pantry"},{id:34,name:"Hot sauce",qty:"",category:"Pantry"},
-  {id:35,name:"Sesame oil",qty:"",category:"Pantry"},{id:36,name:"Rice vinegar",qty:"",category:"Pantry"},
-  {id:37,name:"Cumin",qty:"",category:"Pantry"},{id:38,name:"Paprika",qty:"",category:"Pantry"},
-  {id:39,name:"Italian seasoning",qty:"",category:"Pantry"},{id:40,name:"Chili flakes",qty:"",category:"Pantry"},
-  {id:41,name:"Cornstarch",qty:"",category:"Pantry"},
+// ── Produce ──
+{id:1,name:"Carrots (large)",qty:"",category:"Produce"},{id:2,name:"Carrots (baby)",qty:"",category:"Produce"},
+{id:3,name:"Red onion",qty:"",category:"Produce"},{id:4,name:"Yellow onion",qty:"",category:"Produce"},
+{id:5,name:"Cole slaw",qty:"",category:"Produce"},{id:6,name:"Mushrooms",qty:"",category:"Produce"},
+{id:7,name:"Salt potatoes",qty:"",category:"Produce"},{id:8,name:"Russet potatoes",qty:"",category:"Produce"},
+{id:9,name:"Sweet potatoes",qty:"",category:"Produce"},{id:10,name:"Corn on the cob",qty:"",category:"Produce"},
+{id:11,name:"Zucchini",qty:"",category:"Produce"},{id:12,name:"Summer squash",qty:"",category:"Produce"},
+{id:13,name:"Spinach",qty:"",category:"Produce"},{id:14,name:"Romaine",qty:"",category:"Produce"},
+{id:15,name:"50/50 Mix lettuce",qty:"",category:"Produce"},{id:16,name:"Bagged salad",qty:"",category:"Produce"},
+{id:17,name:"Broccoli",qty:"",category:"Produce"},{id:18,name:"Cauliflower",qty:"",category:"Produce"},
+{id:19,name:"Asparagus",qty:"",category:"Produce"},{id:20,name:"Green beans",qty:"",category:"Produce"},
+{id:21,name:"Brussel sprouts",qty:"",category:"Produce"},{id:22,name:"Cucumber",qty:"",category:"Produce"},
+{id:23,name:"Bell pepper",qty:"",category:"Produce"},{id:24,name:"Mini peppers",qty:"",category:"Produce"},
+{id:25,name:"Cherry tomatoes",qty:"",category:"Produce"},
+{id:26,name:"Apples",qty:"",category:"Produce"},{id:27,name:"Clementines",qty:"",category:"Produce"},
+{id:28,name:"Pears",qty:"",category:"Produce"},{id:29,name:"Blueberries",qty:"",category:"Produce"},
+{id:30,name:"Strawberries",qty:"",category:"Produce"},{id:31,name:"Grapes",qty:"",category:"Produce"},
+{id:32,name:"Cantaloupe",qty:"",category:"Produce"},{id:33,name:"Honeydew",qty:"",category:"Produce"},
+{id:34,name:"Bananas",qty:"",category:"Produce"},{id:35,name:"Watermelon",qty:"",category:"Produce"},
+{id:36,name:"Peaches",qty:"",category:"Produce"},{id:37,name:"Nectarines",qty:"",category:"Produce"},
+// ── Protein ──
+{id:38,name:"Salmon",qty:"",category:"Protein"},{id:39,name:"Cod",qty:"",category:"Protein"},
+{id:40,name:"Halibut",qty:"",category:"Protein"},{id:41,name:"Tilapia",qty:"",category:"Protein"},
+{id:42,name:"Shrimp",qty:"",category:"Protein"},
+{id:43,name:"Chicken breast",qty:"",category:"Protein"},{id:44,name:"Chicken wings/thighs",qty:"",category:"Protein"},
+{id:45,name:"Steak",qty:"",category:"Protein"},{id:46,name:"Pork tenderloin",qty:"",category:"Protein"},
+{id:47,name:"Pork chops",qty:"",category:"Protein"},
+{id:48,name:"Hotdogs",qty:"",category:"Protein"},{id:49,name:"Brats",qty:"",category:"Protein"},
+{id:50,name:"Ground turkey",qty:"",category:"Protein"},{id:51,name:"Turkey sandwich meat",qty:"",category:"Protein"},
+{id:52,name:"Rotisserie chicken",qty:"",category:"Protein"},{id:53,name:"Italian sausage",qty:"",category:"Protein"},
+{id:54,name:"Tofu",qty:"",category:"Protein"},{id:55,name:"Canned chickpeas",qty:"",category:"Protein"},
+{id:56,name:"Lentils",qty:"",category:"Protein"},
+// ── Dairy ──
+{id:57,name:"Whole milk",qty:"",category:"Dairy"},{id:58,name:"Greek yogurt",qty:"",category:"Dairy"},
+{id:59,name:"Half and half",qty:"",category:"Dairy"},{id:60,name:"Cottage cheese",qty:"",category:"Dairy"},
+{id:61,name:"String cheese",qty:"",category:"Dairy"},{id:62,name:"BabyBel cheese",qty:"",category:"Dairy"},
+{id:63,name:"Sandwich sliced cheese",qty:"",category:"Dairy"},{id:64,name:"Block of cheddar cheese",qty:"",category:"Dairy"},
+{id:65,name:"Shredded cheddar",qty:"",category:"Dairy"},{id:66,name:"Shredded mozzarella",qty:"",category:"Dairy"},
+{id:67,name:"Creamer",qty:"",category:"Dairy"},{id:68,name:"Eggs",qty:"",category:"Dairy"},
+{id:69,name:"Cream cheese",qty:"",category:"Dairy"},{id:70,name:"Parmesan",qty:"",category:"Dairy"},
+{id:71,name:"Dip",qty:"",category:"Dairy"},{id:72,name:"Hummus",qty:"",category:"Dairy"},
+{id:73,name:"Feta cheese",qty:"",category:"Dairy"},{id:74,name:"Butter (unsalted)",qty:"",category:"Dairy"},
+{id:75,name:"Blue cheese crumbs",qty:"",category:"Dairy"},{id:76,name:"Ice cream cake",qty:"",category:"Dairy"},
+// ── Grains ──
+{id:77,name:"Multigrain sandwich bread",qty:"",category:"Grains"},{id:78,name:"Brat buns",qty:"",category:"Grains"},
+{id:79,name:"Burger buns",qty:"",category:"Grains"},{id:80,name:"Bakery loaf",qty:"",category:"Grains"},
+{id:81,name:"Naan",qty:"",category:"Grains"},{id:82,name:"Cranberry bread",qty:"",category:"Grains"},
+{id:83,name:"Danish",qty:"",category:"Grains"},
+{id:84,name:"Spaghetti",qty:"",category:"Grains"},{id:85,name:"Pasta",qty:"",category:"Grains"},
+{id:86,name:"Brown rice",qty:"",category:"Grains"},{id:87,name:"Panko breadcrumbs",qty:"",category:"Grains"},
+// ── Pantry ──
+{id:88,name:"Kidney beans",qty:"",category:"Pantry"},{id:89,name:"Black beans",qty:"",category:"Pantry"},
+{id:90,name:"Diced tomatoes",qty:"",category:"Pantry"},{id:91,name:"Tomato sauce cans",qty:"",category:"Pantry"},
+{id:92,name:"Tuna (canned)",qty:"",category:"Pantry"},{id:93,name:"Chicken (canned)",qty:"",category:"Pantry"},
+{id:94,name:"Medium salsa (chunky)",qty:"",category:"Pantry"},{id:95,name:"Pasta sauce",qty:"",category:"Pantry"},
+{id:96,name:"Pizza sauce",qty:"",category:"Pantry"},
+{id:97,name:"Balsamic vinegar",qty:"",category:"Pantry"},{id:98,name:"White vinegar",qty:"",category:"Pantry"},
+{id:99,name:"Virgin olive oil",qty:"",category:"Pantry"},{id:100,name:"Canola oil",qty:"",category:"Pantry"},
+{id:101,name:"Coconut oil",qty:"",category:"Pantry"},{id:102,name:"Sesame oil",qty:"",category:"Pantry"},
+{id:103,name:"Cooking spray",qty:"",category:"Pantry"},
+{id:104,name:"Ketchup",qty:"",category:"Pantry"},{id:105,name:"BBQ sauce",qty:"",category:"Pantry"},
+{id:106,name:"Strawberry jam",qty:"",category:"Pantry"},{id:107,name:"Buffalo sauce",qty:"",category:"Pantry"},
+{id:108,name:"Soy sauce",qty:"",category:"Pantry"},{id:109,name:"Hot sauce",qty:"",category:"Pantry"},
+{id:110,name:"Dijon mustard",qty:"",category:"Pantry"},{id:111,name:"Rice vinegar",qty:"",category:"Pantry"},
+{id:112,name:"Peanut butter (chunky)",qty:"",category:"Pantry"},{id:113,name:"Peanut butter (creamy)",qty:"",category:"Pantry"},
+{id:114,name:"PB fit",qty:"",category:"Pantry"},{id:115,name:"Mayonnaise",qty:"",category:"Pantry"},
+{id:116,name:"Chia seeds",qty:"",category:"Pantry"},
+{id:117,name:"Flour",qty:"",category:"Pantry"},{id:118,name:"Whole wheat flour",qty:"",category:"Pantry"},
+{id:119,name:"Sugar",qty:"",category:"Pantry"},{id:120,name:"Brown sugar",qty:"",category:"Pantry"},
+{id:121,name:"Maple syrup",qty:"",category:"Pantry"},{id:122,name:"Honey",qty:"",category:"Pantry"},
+{id:123,name:"Chocolate chips",qty:"",category:"Pantry"},{id:124,name:"Craisins",qty:"",category:"Pantry"},
+{id:125,name:"Raisins",qty:"",category:"Pantry"},{id:126,name:"Chopped garlic",qty:"",category:"Pantry"},
+{id:127,name:"Brownie mix",qty:"",category:"Pantry"},{id:128,name:"Better Than Bouillon",qty:"",category:"Pantry"},
+{id:129,name:"Mac and cheese (Annies)",qty:"",category:"Pantry"},{id:130,name:"Walnuts",qty:"",category:"Pantry"},
+{id:131,name:"Vanilla",qty:"",category:"Pantry"},{id:132,name:"Kodiak cakes mix",qty:"",category:"Pantry"},
+{id:133,name:"Cumin",qty:"",category:"Pantry"},{id:134,name:"Paprika",qty:"",category:"Pantry"},
+{id:135,name:"Italian seasoning",qty:"",category:"Pantry"},{id:136,name:"Chili flakes",qty:"",category:"Pantry"},
+{id:137,name:"Cornstarch",qty:"",category:"Pantry"},
+// ── Snacks ──
+{id:138,name:"Pop Corners",qty:"",category:"Snacks"},{id:139,name:"Sandwich crackers with PB or cheese",qty:"",category:"Snacks"},
+{id:140,name:"Harvest Pea Snacks",qty:"",category:"Snacks"},{id:141,name:"Goldfish",qty:"",category:"Snacks"},
+{id:142,name:"To go snacks",qty:"",category:"Snacks"},
+{id:143,name:"Dates",qty:"",category:"Snacks"},{id:144,name:"Prunes",qty:"",category:"Snacks"},
+{id:145,name:"Apricots (dried)",qty:"",category:"Snacks"},{id:146,name:"Mangos (dried)",qty:"",category:"Snacks"},
+{id:147,name:"Pretzel thins",qty:"",category:"Snacks"},{id:148,name:"Granola",qty:"",category:"Snacks"},
+{id:149,name:"Oatmeal",qty:"",category:"Snacks"},{id:150,name:"Cereal",qty:"",category:"Snacks"},
+{id:151,name:"Granola bar",qty:"",category:"Snacks"},{id:152,name:"Crackers",qty:"",category:"Snacks"},
+{id:153,name:"Mixed nuts",qty:"",category:"Snacks"},{id:154,name:"Protein powder",qty:"",category:"Snacks"},
+{id:155,name:"Pure Protein bars",qty:"",category:"Snacks"},{id:156,name:"Fig bars",qty:"",category:"Snacks"},
+{id:157,name:"Tortilla chips",qty:"",category:"Snacks"},{id:158,name:"Cheez-Its",qty:"",category:"Snacks"},
+{id:159,name:"Pirate's Booty",qty:"",category:"Snacks"},{id:160,name:"Cliff bars",qty:"",category:"Snacks"},
+{id:161,name:"Yogurt packets",qty:"",category:"Snacks"},{id:162,name:"Applesauce packets",qty:"",category:"Snacks"},
+{id:163,name:"Dessert",qty:"",category:"Snacks"},
+// ── Frozen ──
+{id:164,name:"Peas & carrots mix",qty:"",category:"Frozen"},{id:165,name:"Cauliflower Normandy mix",qty:"",category:"Frozen"},
+{id:166,name:"Stir fry veggie mix",qty:"",category:"Frozen"},{id:167,name:"Tater tots",qty:"",category:"Frozen"},
+{id:168,name:"Corn (frozen)",qty:"",category:"Frozen"},{id:169,name:"Edamame",qty:"",category:"Frozen"},
+{id:170,name:"Cauliflower rice mix",qty:"",category:"Frozen"},
+{id:171,name:"Berry mix (frozen)",qty:"",category:"Frozen"},{id:172,name:"Peaches (frozen)",qty:"",category:"Frozen"},
+{id:173,name:"Impossible burgers",qty:"",category:"Frozen"},{id:174,name:"Chicken tenders",qty:"",category:"Frozen"},
+{id:175,name:"Pizza (pepperoni)",qty:"",category:"Frozen"},{id:176,name:"Pizza (cauliflower crust)",qty:"",category:"Frozen"},
+{id:177,name:"Tilapia breaded",qty:"",category:"Frozen"},
+{id:178,name:"Vanilla ice cream",qty:"",category:"Frozen"},{id:179,name:"Ice pops",qty:"",category:"Frozen"},
+{id:180,name:"Fudge pops",qty:"",category:"Frozen"},{id:181,name:"Popsicles",qty:"",category:"Frozen"},
+// ── Beverages ──
+{id:182,name:"Seltzers",qty:"",category:"Beverages"},{id:183,name:"Diet Coke",qty:"",category:"Beverages"},
+{id:184,name:"Almond milk",qty:"",category:"Beverages"},{id:185,name:"Oat milk",qty:"",category:"Beverages"},
+{id:186,name:"Beer",qty:"",category:"Beverages"},{id:187,name:"Cider",qty:"",category:"Beverages"},
+{id:188,name:"Hard seltzer",qty:"",category:"Beverages"},
+{id:189,name:"Decaf coffee",qty:"",category:"Beverages"},{id:190,name:"Tea",qty:"",category:"Beverages"},
+{id:191,name:"Coffee (medium Starbucks)",qty:"",category:"Beverages"},
+// ── Health & Baby ──
+{id:192,name:"Diapers",qty:"",category:"Health & Baby"},{id:193,name:"Pull ups",qty:"",category:"Health & Baby"},
+{id:194,name:"Ibuprofen (infant)",qty:"",category:"Health & Baby"},{id:195,name:"Ibuprofen (child)",qty:"",category:"Health & Baby"},
+{id:196,name:"Baby wipes",qty:"",category:"Health & Baby"},{id:197,name:"Sunscreen spray",qty:"",category:"Health & Baby"},
+{id:198,name:"Flushable wipes",qty:"",category:"Health & Baby"},{id:199,name:"Baby wash",qty:"",category:"Health & Baby"},
+{id:200,name:"Floss",qty:"",category:"Health & Baby"},{id:201,name:"Zyrtec",qty:"",category:"Health & Baby"},
+{id:202,name:"Flonase",qty:"",category:"Health & Baby"},{id:203,name:"Toothpaste",qty:"",category:"Health & Baby"},
+{id:204,name:"Body wash",qty:"",category:"Health & Baby"},{id:205,name:"Shampoo",qty:"",category:"Health & Baby"},
+{id:206,name:"Conditioner",qty:"",category:"Health & Baby"},{id:207,name:"Color treatment conditioner",qty:"",category:"Health & Baby"},
+{id:208,name:"Face wash",qty:"",category:"Health & Baby"},{id:209,name:"Face lotion",qty:"",category:"Health & Baby"},
+{id:210,name:"Sunscreen",qty:"",category:"Health & Baby"},{id:211,name:"Vitamin D",qty:"",category:"Health & Baby"},
+{id:212,name:"Magnesium",qty:"",category:"Health & Baby"},{id:213,name:"Prenatal vitamins",qty:"",category:"Health & Baby"},
+{id:214,name:"Fish oil",qty:"",category:"Health & Baby"},{id:215,name:"Deodorant",qty:"",category:"Health & Baby"},
+{id:216,name:"Panty liners",qty:"",category:"Health & Baby"},{id:217,name:"Pads",qty:"",category:"Health & Baby"},
+{id:218,name:"Famotidine",qty:"",category:"Health & Baby"},{id:219,name:"Metamucil",qty:"",category:"Health & Baby"},
+{id:220,name:"Preparation H wipes",qty:"",category:"Health & Baby"},
+// ── Household ──
+{id:221,name:"Sponges",qty:"",category:"Household"},{id:222,name:"Napkins",qty:"",category:"Household"},
+{id:223,name:"Foil",qty:"",category:"Household"},{id:224,name:"Parchment paper",qty:"",category:"Household"},
+{id:225,name:"Plastic wrap",qty:"",category:"Household"},{id:226,name:"Zip lock bags",qty:"",category:"Household"},
+{id:227,name:"Tissues",qty:"",category:"Household"},{id:228,name:"Toilet paper",qty:"",category:"Household"},
+{id:229,name:"Trash bags",qty:"",category:"Household"},{id:230,name:"Small trash bags",qty:"",category:"Household"},
+{id:231,name:"Dish soap",qty:"",category:"Household"},{id:232,name:"Dishwasher soap",qty:"",category:"Household"},
+{id:233,name:"Hand soap",qty:"",category:"Household"},{id:234,name:"Dryer sheets",qty:"",category:"Household"},
+{id:235,name:"Baking soda",qty:"",category:"Household"},{id:236,name:"Sanitizing wipes",qty:"",category:"Household"},
+{id:237,name:"Laundry detergent",qty:"",category:"Household"},{id:238,name:"AA batteries",qty:"",category:"Household"},
+{id:239,name:"AAA batteries",qty:"",category:"Household"},{id:240,name:"Candles",qty:"",category:"Household"},
+{id:241,name:"Lightbulbs",qty:"",category:"Household"},{id:242,name:"Air filters 20x25x1",qty:"",category:"Household"},
+{id:243,name:"Car oil",qty:"",category:"Household"},{id:244,name:"Windshield fluid",qty:"",category:"Household"},
+// ── Other ──
+{id:245,name:"Soup",qty:"",category:"Other"},{id:246,name:"Premade meal",qty:"",category:"Other"},
+{id:247,name:"Dog food",qty:"",category:"Other"},
 ];
 
 
@@ -528,6 +651,21 @@ function loadAll(){
 
 }
 
+// One-time migration: merge SEED items into existing inventory for users
+// who already have data in localStorage. Only adds items not already present
+// (case-insensitive name match). Runs once, then sets a flag.
+function migrateInventory(){
+  if(ls("seedMigrated_v2")) return;
+  const existing=new Set(S.inventory.map(i=>i.name.trim().toLowerCase()));
+  const toAdd=SEED.filter(item=>!existing.has(item.name.trim().toLowerCase()));
+  if(toAdd.length){
+    S.inventory=[...S.inventory,...toAdd.map((item,i)=>({...item,id:Date.now()+i}))];
+    ls("inventory",S.inventory);
+    pushSync();
+  }
+  ls("seedMigrated_v2",true);
+}
+
 function geminiKey(){ return ls("geminiKey")||""; }
 function applyTheme(){ document.body.dataset.theme = S.theme; }
 function setTheme(id){ S.theme=id; ls("theme",id); applyTheme(); render(); }
@@ -633,21 +771,43 @@ function updateInventoryItem(id,field,value){
 // stocked by default instead of suddenly appearing all "out of stock".
 function isStocked(item){ return item.stocked!==false; }
 
-function toggleStocked(id){
-  const item=S.inventory.find(i=>i.id===id);
-  const nowStocked=item?!isStocked(item):false;
-  setAndSync("inventory", S.inventory.map(i=>i.id===id?{...i, stocked: !isStocked(i)}:i));
-  // Restocking is the natural end of "we don't have it": clear any ∅ exclusion
-  // linked to this pantry item so it stops haunting future generations.
-  if(nowStocked && S.missingIngredients.some(m=>m.invId===id)){
-    setAndSync("missingIngredients", S.missingIngredients.filter(m=>m.invId!==id));
-  }
-}
-
-function addInventoryItemToGrocery(id){
+// 3-state inventory cycle: In stock → Need (+ grocery) → Skip (no grocery) → In stock.
+// One tap target per item; the state determines what happens next.
+// "Need" = unstocked + on grocery list.  "Skip" = unstocked + NOT on grocery list.
+function cycleInventoryState(id){
   const item=S.inventory.find(i=>i.id===id);
   if(!item) return;
-  addGroceryItem(item.name, "pantry");
+  const stocked=isStocked(item);
+  const norm=item.name.trim().toLowerCase();
+  const inGrocery=S.groceryList.some(g=>g.text.trim().toLowerCase()===norm);
+
+  if(stocked){
+    // In stock → Need: mark unstocked + add to grocery
+    S.inventory=S.inventory.map(i=>i.id===id?{...i,stocked:false}:i);
+    ls("inventory",S.inventory);
+    if(!inGrocery){
+      S.groceryList=[...S.groceryList,{id:Date.now()+Math.random(),text:item.name.trim(),checked:false,source:"pantry",store:"either"}];
+      ls("groceryList",S.groceryList);
+    }
+    editSeq++; pushSync(); render();
+  } else if(inGrocery){
+    // Need → Skip: remove unchecked grocery entries, stay unstocked
+    S.groceryList=S.groceryList.filter(g=>{
+      if(g.text.trim().toLowerCase()!==norm) return true;
+      return g.checked; // keep checked items (already bought)
+    });
+    ls("groceryList",S.groceryList);
+    editSeq++; pushSync(); render();
+  } else {
+    // Skip → In stock: restock + clear any linked ∅ exclusions
+    S.inventory=S.inventory.map(i=>i.id===id?{...i,stocked:true}:i);
+    ls("inventory",S.inventory);
+    if(S.missingIngredients.some(m=>m.invId===id)){
+      S.missingIngredients=S.missingIngredients.filter(m=>m.invId!==id);
+      ls("missingIngredients",S.missingIngredients);
+    }
+    editSeq++; pushSync(); render();
+  }
 }
 
 // Bulk-adds every currently unstocked pantry item to the grocery list,
@@ -1401,20 +1561,22 @@ function renderInventory(){
   CATEGORIES.forEach(c=>{const items=S.inventory.filter(i=>i.category===c);if(items.length)grouped[c]=items;});
   const groceryNorm=new Set(S.groceryList.map(g=>g.text.trim().toLowerCase()));
 
+  // 3-state item row: In stock (🛒) → Need (✓ On list) → Skip (— Skip) → In stock
   const itemRow=item=>{
     const stocked=isStocked(item);
-    const inGrocery=groceryNorm.has(item.name.trim().toLowerCase());
-    return '<div class="pantry-item'+(stocked?" stocked":"")+'">'
-      +'<label class="pantry-check">'
-      +'<input type="checkbox" style="display:none" '+(stocked?"checked":"")+' onchange="toggleStocked('+item.id+')">'
-            +'<span class="pantry-checkmark"><svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 8.5L6.5 12L13 4.5" stroke="white" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'
-      +'</label>'
+    const norm=item.name.trim().toLowerCase();
+    const inGrocery=groceryNorm.has(norm);
+    const isNeed=!stocked&&inGrocery;
+    const isSkip=!stocked&&!inGrocery;
+    const stateBtn=isNeed
+      ?'<button class="pantry-state-btn need" onclick="cycleInventoryState('+item.id+')" title="On grocery list — tap to skip instead">✓ On list</button>'
+      :isSkip
+        ?'<button class="pantry-state-btn skip" onclick="cycleInventoryState('+item.id+')" title="Skipped — tap to restock">— Skip</button>'
+        :'<button class="pantry-state-btn" onclick="cycleInventoryState('+item.id+')" title="Tap to add to grocery list">🛒 Need</button>';
+    return '<div class="pantry-item'+(!stocked?" unstocked":"")+'">'
       +'<input class="pantry-text" value="'+esc(item.name)+'" oninput="S.inventory=S.inventory.map(i=>i.id==='+item.id+'?{...i,name:this.value}:i)" onchange="updateInventoryItem('+item.id+',\'name\',this.value)">'
       +'<input class="pantry-qty" placeholder="qty" value="'+esc(item.qty||"")+'" oninput="S.inventory=S.inventory.map(i=>i.id==='+item.id+'?{...i,qty:this.value}:i)" onchange="updateInventoryItem('+item.id+',\'qty\',this.value)">'
-      +(!stocked?'<span class="pantry-out-badge">Out</span>':"")
-      +(inGrocery
-        ?'<button class="pantry-add-grocery" disabled>✓ In list</button>'
-        :'<button class="pantry-add-grocery" onclick="addInventoryItemToGrocery('+item.id+')">+ Grocery</button>')
+      +stateBtn
       +'<button class="rm-btn" onclick="removeItem('+item.id+')">×</button>'
       +'</div>';
   };
@@ -1425,16 +1587,17 @@ function renderInventory(){
     +'</div></div>'
   ).join("");
 
-  const unstockedCount=S.inventory.filter(i=>!isStocked(i)).length;
+  // Count items in Skip state (unstocked but NOT on grocery list) for bulk action
+  const skipCount=S.inventory.filter(i=>!isStocked(i)&&!groceryNorm.has(i.name.trim().toLowerCase())).length;
 
   return '<div class="content">'
     +'<div class="toolbar"><h2 class="section-title">What\'s in your pantry?</h2>'
     +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
     +(S.inventory.length?'<span class="inv-count">'+S.inventory.length+' items</span>':"")
-    +(unstockedCount?'<button class="btn btn-secondary" style="font-size:12px;padding:5px 11px" onclick="addUnstockedToGrocery()">🛒 Add '+unstockedCount+' unstocked</button>':"")
+    +(skipCount?'<button class="btn btn-secondary" style="font-size:12px;padding:5px 11px" onclick="addUnstockedToGrocery()">🛒 Add '+skipCount+' skipped</button>':"")
     +(S.scriptUrl?'<button class="btn btn-secondary" style="font-size:12px;padding:5px 11px" onclick="fetchSync()">'+( S.syncing?'↻ Syncing…':'↻ Sync now')+'</button>':"")
     +'</div></div>'
-    +'<p class="section-desc">Check off what you have. Uncheck anything you\'re out of — it stays on the list so you can restock it, and only checked items get used when planning meals.</p>'
+    +'<p class="section-desc">Tap 🛒 Need to add to your grocery list. Tap again to skip, or a third time to restock. Items marked Need or Skip are excluded from AI meal planning.</p>'
     +'<div class="card">'
     +'<div class="add-row">'
     +'<input class="fi name" placeholder="Item name" value="'+esc(S.newItem.name)+'" oninput="S.newItem.name=this.value" onkeydown="if(event.key===\'Enter\')addItem()">'
@@ -1917,6 +2080,7 @@ function render(){
 }
 
 loadAll();
+migrateInventory();
 applyTheme();
 render();
 
