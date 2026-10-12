@@ -130,6 +130,30 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
 .pantry-item:last-child, .grocery-item:last-child{border-bottom:none;}
 .grocery-item.checked .grocery-text{text-decoration:line-through;color:var(--muted);}
 .pantry-item.unstocked .pantry-text{font-style:italic;color:var(--muted);}
+/* Inventory search: rows/groups are hidden with the [hidden] attribute, but
+   .pantry-item's display:flex would override the UA [hidden] rule — force it. */
+.pantry-item[hidden], .cat-group[hidden]{display:none!important;}
+.inv-search{width:100%;box-sizing:border-box;}
+.inv-search-status{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:8px;}
+.inv-search-status:empty{display:none;}
+.rv-seg{display:flex;gap:4px;flex-shrink:0;margin-left:auto;}
+.rv-btn{font-family:'IBM Plex Sans',sans-serif;font-size:12px;padding:5px 9px;border-radius:14px;border:1px solid var(--border);background:var(--bg);color:var(--muted);cursor:pointer;white-space:nowrap;}
+/* Selected = filled + bold + white text (lightness + weight), never hue alone */
+.rv-btn.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700;}
+.review-row{flex-wrap:wrap;row-gap:6px;}
+.review-row .rv-name{flex:1;min-width:110px;font-size:14px;}
+.review-row .rv-qty{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);margin-left:6px;}
+.review-row.marked .rv-name{color:var(--muted);}
+.rv-progress{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);margin-bottom:10px;}
+.link-btn{font-size:13px;color:var(--accent);background:none;border:none;cursor:pointer;padding:0;text-decoration:underline;font-family:inherit;}
+/* Seed the week */
+.seed-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;}
+.seed-head.toggle{cursor:pointer;}
+.seed-title{font-weight:700;font-size:15px;}
+.seed-count{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);}
+.seed-row{display:flex;align-items:center;gap:10px;padding:4px 0;}
+.seed-day{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;color:var(--muted);width:40px;flex-shrink:0;}
+.seed-row .fi{flex:1;min-width:0;}
 .grocery-check{display:inline-flex;cursor:pointer;flex-shrink:0;}
 .grocery-checkmark{
   width:22px;height:22px;border:2px solid var(--border);border-radius:6px;
@@ -603,7 +627,15 @@ const S={
   quickMeals:{breakfast:["Oatmeal","Greek yogurt + fruit","Eggs on toast"],lunch:["Leftover rice bowl","Tuna sandwich","Soup + bread"]},
   newQuick:{breakfast:"",lunch:""},
   mealPlan:null, loading:false, regenDay:null, generateError:"", expandedDay:null,
-  dayInstructions:{},
+  dayInstructions:{},      // {[day]: text} — per-day seed / steering text. One source for BOTH the
+                           // "Seed the week" panel and each day card's composer. PER-DEVICE
+                           // (localStorage), not synced. See AUDIT.md §4.
+  showSeeds:false,         // seed panel expanded (plan-exists view only) — session-only
+  invSearch:"",            // inventory search query — session-only
+  invReview:{},            // {[itemId]: "need"|"dont"|"check"} — weekly review marks. PERSISTED + SYNCED.
+                           // A log of this week's decisions, separate from stock state. See AUDIT.md §4.
+  invReviewMode:false,     // Inventory tab in review mode — session-only
+  invReviewFilter:"all",   // "all"|"unreviewed"|"check" — session-only
   missingIngredients:[],   // [{text, invId|null, gid|null}] — persisted AND synced (see AUDIT.md §3/§4);
                            // cleared per-entry when its linked pantry item is restocked
   generation:null,         // preview slot for generate-preview-commit steering — session-only (see AUDIT.md §4)
@@ -628,7 +660,7 @@ function ls(k,v){
   try{if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,JSON.stringify(v));}catch(e){}
 }
 
-const SYNC_KEYS=["inventory","dietPrefs","household","avoid","fixedMeals","mealPlan","quickMeals","promptWeek","promptDay","groceryList","missingIngredients"];
+const SYNC_KEYS=["inventory","dietPrefs","household","avoid","fixedMeals","mealPlan","quickMeals","promptWeek","promptDay","groceryList","missingIngredients","invReview"];
 
 function loadAll(){
   S.inventory   = ls("inventory") || SEED;
@@ -640,6 +672,8 @@ function loadAll(){
   S.quickMeals  = ls("quickMeals") || S.quickMeals;
   S.groceryList = ls("groceryList") || [];
   S.missingIngredients = ls("missingIngredients") || [];
+  S.dayInstructions = sanitizeDayInstructions(ls("dayInstructions"));
+  S.invReview = ls("invReview") || {};
   const sr = ls("scanReview"); S.scanReview = sr===null ? true : !!sr;
   S.groceryFilter = ["all","grocery","costco"].includes(ls("groceryFilter")) ? ls("groceryFilter") : "all";
   S.promptWeek  = ls("promptWeek") || DEFAULT_PROMPT_WEEK;
@@ -771,12 +805,130 @@ function updateInventoryItem(id,field,value){
 // stocked by default instead of suddenly appearing all "out of stock".
 function isStocked(item){ return item.stocked!==false; }
 
+// ── Inventory search ─────────────────────────────────────────────────────────
+// ONE matcher, used by both renderInventory (render path) and
+// applyInvSearchDom (typing path). Typing must not call render(): Guard 1
+// would skip it anyway, and an innerHTML swap would dismiss the iOS keyboard.
+// So render emits ALL rows with [hidden] on non-matches, and typing just
+// re-toggles [hidden] — rows are never missing from the DOM, so broadening a
+// query (deleting characters) can always un-hide them.
+function invMatches(item,q){
+  q=String(q||"").trim().toLowerCase();
+  return !q || String(item.name||"").toLowerCase().includes(q);
+}
+// ── Weekly review marks ─────────────────────────────────────────────────────
+// S.invReview is a log of THIS WEEK's decisions, separate from stock state:
+// "confirmed fine" vs "not looked at yet" is not representable in `stocked`.
+// Effects on stock/grocery happen ONCE, at tap time, in setReviewMark (the
+// single writer). Values are validated on every read — the map arrives via
+// sync and is not trusted to be well-formed.
+const REVIEW_MARKS=["need","dont","check"];
+function reviewMap(){ const r=S.invReview; return (r&&typeof r==="object"&&!Array.isArray(r))?r:{}; }
+function reviewMarkOf(id){ const m=reviewMap()[String(id)]; return REVIEW_MARKS.includes(m)?m:null; }
+function reviewFilterMatches(item){
+  if(!S.invReviewMode) return true;
+  const f=S.invReviewFilter, m=reviewMarkOf(item.id);
+  return f==="unreviewed"?!m : f==="check"?m==="check" : true;
+}
+// Combined visibility: search AND (in review mode) the review filter. Both the
+// render path and the typing DOM patch go through this one function.
+function invVisible(item){ return invMatches(item,S.invSearch)&&reviewFilterMatches(item); }
+function setReviewMark(id,mark){
+  if(!REVIEW_MARKS.includes(mark)) return;
+  const item=S.inventory.find(i=>i.id===id); if(!item) return;
+  const live=new Set(S.inventory.map(i=>String(i.id)));
+  const r={};  // rebuild: drops malformed values and marks for deleted items
+  Object.entries(reviewMap()).forEach(([k,v])=>{ if(live.has(k)&&REVIEW_MARKS.includes(v)) r[k]=v; });
+  const key=String(id);
+  if(r[key]===mark){
+    // Tap the selected mark again = unmark. Deliberately does NOT reverse the
+    // effect — to fix a mis-tapped Need, tap Don't need (it pulls it off the list).
+    delete r[key];
+  } else {
+    r[key]=mark;
+    const norm=item.name.trim().toLowerCase();
+    const inGrocery=S.groceryList.some(g=>g.text.trim().toLowerCase()===norm);
+    if(mark==="need"){
+      // Same effect as the normal-mode Need state: unstocked + on the list (deduped).
+      S.inventory=S.inventory.map(i=>i.id===id?{...i,stocked:false}:i);
+      ls("inventory",S.inventory);
+      if(!inGrocery){
+        S.groceryList=[...S.groceryList,{id:Date.now()+Math.random(),text:item.name.trim(),checked:false,source:"pantry",store:"either"}];
+        ls("groceryList",S.groceryList);
+      }
+    } else if(mark==="dont"){
+      // Off the list only. Stock state is left alone: "don't need to buy" is
+      // not a claim that you have it. Checked entries (already bought) stay.
+      if(inGrocery){
+        S.groceryList=S.groceryList.filter(g=>g.text.trim().toLowerCase()!==norm||g.checked);
+        ls("groceryList",S.groceryList);
+      }
+    } // "check": flag only, no stock or grocery effect
+  }
+  S.invReview=r; ls("invReview",r);
+  editSeq++; pushSync(); render();
+}
+function setReviewMode(on){ S.invReviewMode=!!on; if(!on) S.invReviewFilter="all"; render(); }
+function setReviewFilter(f){ if(["all","unreviewed","check"].includes(f)){ S.invReviewFilter=f; render(); } }
+function clearReview(){
+  const n=S.inventory.filter(i=>reviewMarkOf(i.id)).length;
+  if(!n) return;
+  if(!confirm("Clear all "+n+" review marks? Your grocery list and stock states are not changed.")) return;
+  setAndSync("invReview",{});
+}
+
+function invSearchStatusHtml(shown,total){
+  const q=S.invSearch.trim();
+  if(!q){
+    // No search, but a review filter can still narrow the view — say so.
+    if(S.invReviewMode&&S.invReviewFilter!=="all")
+      return shown?'':'<span>'+(S.invReviewFilter==="check"?'Nothing marked ? Check.':'Every item is reviewed.')+'</span>';
+    return "";
+  }
+  // The query is displayed via esc() and NEVER interpolated into an onclick —
+  // prefillAddFromSearch() reads S.invSearch itself.
+  return shown
+    ? '<span>Showing '+shown+' of '+total+'</span><button class="link-btn" onclick="clearInvSearch()">Clear search</button>'
+    : '<span>No items match “'+esc(q)+'”.</span><button class="link-btn" onclick="prefillAddFromSearch()">+ Add “'+esc(q)+'”</button><button class="link-btn" onclick="clearInvSearch()">Clear search</button>';
+}
+function applyInvSearchDom(){
+  const byId=new Map(S.inventory.map(i=>[String(i.id),i]));
+  let shown=0;
+  document.querySelectorAll(".pantry-item[data-inv-id]").forEach(r=>{
+    const it=byId.get(r.dataset.invId);
+    const ok=!!it&&invVisible(it);
+    r.hidden=!ok; if(ok) shown++;
+  });
+  document.querySelectorAll(".pantry-grid .cat-group").forEach(g=>{
+    g.hidden=!g.querySelector(".pantry-item:not([hidden])");
+  });
+  const st=document.getElementById("inv-search-status");
+  if(st) st.innerHTML=invSearchStatusHtml(shown,S.inventory.length);
+}
+function setInvSearch(v){ S.invSearch=String(v); applyInvSearchDom(); }
+function clearInvSearch(){
+  S.invSearch="";
+  const el=document.getElementById("inv-search"); if(el) el.value="";
+  applyInvSearchDom();   // DOM patch, not render — works even if the field is still focused
+}
+// "Do we have X? No — add it." Moves the query into the add row and focuses it.
+function prefillAddFromSearch(){
+  S.newItem.name=S.invSearch.trim();
+  S.invSearch="";
+  if(document.activeElement&&document.activeElement.blur) document.activeElement.blur(); // else Guard 1 skips the render
+  render();
+  const el=document.getElementById("inv-add-name");
+  if(el){ el.focus(); el.setSelectionRange(el.value.length,el.value.length); }
+}
+
 // 3-state inventory cycle: In stock → Need (+ grocery) → Skip (no grocery) → In stock.
 // One tap target per item; the state determines what happens next.
 // "Need" = unstocked + on grocery list.  "Skip" = unstocked + NOT on grocery list.
 function cycleInventoryState(id){
   const item=S.inventory.find(i=>i.id===id);
   if(!item) return;
+  // A manual stock change supersedes this week's review decision for the item.
+  if(reviewMarkOf(id)){ const r={...reviewMap()}; delete r[String(id)]; S.invReview=r; ls("invReview",r); }
   const stocked=isStocked(item);
   const norm=item.name.trim().toLowerCase();
   const inGrocery=S.groceryList.some(g=>g.text.trim().toLowerCase()===norm);
@@ -882,6 +1034,44 @@ function toggleIngredientMissing(day, idx){
   }
 }
 // Assembled in JS into {CONTEXT} — custom saved prompt templates are unaffected.
+// ── Day seeds / steering text (S.dayInstructions) ────────────────────────────
+// Single source of truth for per-day text, shown in two places: the "Seed the
+// week" panel and each day card's composer. Keys are whitelisted against DAYS
+// on load (they're interpolated into onclick/oninput handlers elsewhere — the
+// same validation-not-escaping rule as normalizeDays).
+function sanitizeDayInstructions(obj){
+  const out={};
+  if(obj&&typeof obj==="object") DAYS.forEach(d=>{ if(typeof obj[d]==="string"&&obj[d].trim()) out[d]=obj[d]; });
+  return out;
+}
+function seedCount(){ return DAYS.filter(d=>(S.dayInstructions[d]||"").trim()).length; }
+function seedCountText(){ const n=seedCount(); return n?n+" of 7 days seeded":"No days seeded"; }
+// oninput handler for EVERY field bound to a day's text. No render (Guard 1);
+// persists immediately (an iOS PWA reload mid-typing must not lose 7 ideas);
+// mirrors the value into any other visible field for the same day so the
+// panel and the composer can never show different text for one day.
+function setDayText(day,el){
+  if(!DAYS.includes(day)) return;
+  const v=el.value;
+  if(v.trim()) S.dayInstructions[day]=v; else delete S.dayInstructions[day];
+  ls("dayInstructions",S.dayInstructions);
+  document.querySelectorAll('[data-day-text="'+day+'"]').forEach(f=>{ if(f!==el) f.value=v; });
+  const c=document.getElementById("seed-count"); if(c) c.textContent=seedCountText();
+}
+function seedEnter(day){
+  const i=DAYS.indexOf(day);
+  const next=document.querySelector('.seed-row [data-day-text="'+DAYS[(i+1)%7]+'"]');
+  if(next&&i<6) next.focus(); else if(document.activeElement) document.activeElement.blur();
+}
+function clearSeeds(){
+  if(!seedCount()) return;
+  if(!confirm("Clear the ideas for all 7 days?")) return;
+  S.dayInstructions={}; ls("dayInstructions",S.dayInstructions);
+  if(document.activeElement&&document.activeElement.blur) document.activeElement.blur();
+  render();
+}
+function toggleSeeds(){ S.showSeeds=!S.showSeeds; render(); }
+
 function missingContextLine(){
   return S.missingIngredients.length
     ? "\nMISSING (user confirmed these are NOT available — do not use them): "+S.missingIngredients.map(m=>m.text).join(", ")
@@ -1309,7 +1499,13 @@ async function generateCandidate(day){
     .replace(/\{CONTEXT\}/g, ctxLines)
     .replace(/\{FIXED\}/g, fixed?(fixedConflict
       ?"NOTE: The usual fixed dinner for this day is \""+fixed.description+"\" but it requires ingredients the user does not have — do NOT make it. Generate a different dinner that avoids the unavailable ingredients."
-      :"FIXED: This dinner must be: "+fixed.description):"")
+      :(instruction
+        // Seeds now persist, so a seeded Tuesday collides with a fixed Tuesday
+        // on every Redo. The text may be a dish ("Southwest skillet") or a
+        // nudge ("make it cheesier") — only the model can tell, so give it an
+        // explicit precedence rule instead of two flat mandates.
+        ?"FIXED (default): This dinner is normally: "+fixed.description+". If the SPECIAL REQUEST below names a different dish, make the requested dish instead; if it only adjusts the meal, apply it to this fixed dinner."
+        :"FIXED: This dinner must be: "+fixed.description)):"")
     .replace(/\{EXISTING\}/g, existing?"ALREADY PLANNED THIS WEEK (do not repeat): "+existing:"")
     .replace(/\{INSTRUCTION\}/g, instructionLine);
   // Fallback for a saved custom prompt that predates the {INSTRUCTION} placeholder —
@@ -1437,8 +1633,11 @@ async function callGemini(key,prompt,system,image){
 async function generatePlan(){
   const key=geminiKey();
   if(!key){S.generateError="No Gemini API key — tap ⚙ Settings.";render();return;}
-  S.loading=true; S.generateError=""; S.mealPlan=null; ls("mealPlan",null);
-  S.generation=null;  // a preview diffed against the old plan is meaningless now
+  // The current plan is NOT cleared here: it stays committed (in S, localStorage
+  // and sync) until a complete replacement validates. A failed or partial
+  // generate leaves the old plan untouched — never a blank week.
+  if(document.activeElement&&document.activeElement.blur) document.activeElement.blur(); // Guard 1 would swallow the loading paint
+  S.loading=true; S.generateError="";
   render();
 
   const stockedItems=S.inventory.filter(isStocked);
@@ -1447,14 +1646,25 @@ async function generatePlan(){
     :"No specific items — assume a well-stocked kitchen";
   const diet=S.dietPrefs.length?S.dietPrefs.map(p=>DIET_OPTIONS.find(o=>o.id===p)?.label).join(", "):"No restrictions";
   const household=S.household.map(m=>m.name+" ("+m.type+(m.age?", age "+m.age:"")+")").join(", ");
-  const fixed=S.fixedMeals.length?S.fixedMeals.map(m=>"- "+m.day+" "+m.mealType+": "+m.description).join("\n"):"None";
   const avoid=S.avoid.trim()||"none";
+  // Seeds (S.dayInstructions) are this-week dish ideas. A seed beats a fixed
+  // dinner for its day — resolved HERE, deterministically, by dropping that
+  // fixed entry, rather than handing the model two contradictory mandates
+  // (same lesson as the FIXED-vs-MISSING conflict). Hard constraints (diet /
+  // avoid / missing) still beat seeds via hardConstraintsSystem().
+  const seedFor=d=>(S.dayInstructions[d]||"").trim();
+  const fixedLines=S.fixedMeals
+    .filter(m=>!(m.mealType==="dinner"&&seedFor(m.day)))
+    .map(m=>"- "+m.day+" "+m.mealType+": "+m.description);
+  const fixed=fixedLines.length?fixedLines.join("\n"):"None";
 
   const makePrompt=(days)=>{
+    const seeds=days.filter(seedFor).map(d=>"- "+d+": "+seedFor(d));
     const ctx="PANTRY: "+inv+"\nDIET: "+diet+"\nAVOID: "+avoid+missingContextLine()
       +"\nHOUSEHOLD: "+household+" (children under 5 need soft textures, mild flavors)"
       +"\nHOUSEHOLD NUTRITION TARGETS: "+householdNutritionSummary()
-      +"\nFIXED MEALS:\n"+fixed;
+      +"\nFIXED MEALS:\n"+fixed
+      +(seeds.length?"\nREQUESTED DINNERS (the user chose these ideas — build that day's dinner around the idea, with full ingredients and recipe; keep the dish recognizable, adapting only as needed to satisfy diet/avoid/missing constraints; days not listed are your choice):\n"+seeds.join("\n"):"");
     return (S.promptWeek||DEFAULT_PROMPT_WEEK)
       .replace(/\{DAYS\}/g, days.join(", "))
       .replace(/\{CONTEXT\}/g, ctx);
@@ -1475,10 +1685,16 @@ async function generatePlan(){
     allDays.forEach(d=>{
       if(!d.dinner && d.meals?.dinner) d.dinner=d.meals.dinner;
     });
+    // Completely-or-not: a replacement week must have all 7 days, each with a
+    // named dinner, before it may displace the current plan.
+    const complete=DAYS.filter(day=>allDays.some(d=>d.day===day&&d.dinner&&typeof d.dinner.name==="string"&&d.dinner.name.trim()));
+    if(complete.length!==7||allDays.length!==7)
+      throw new Error("AI returned "+complete.length+" of 7 complete days"+(S.mealPlan?" — kept your current plan.":".")+" Please try again.");
+    S.generation=null;  // a preview diffed against the old plan is meaningless now
     S.mealPlan={days:allDays,shopping_list:shopping};
     setAndSync("mealPlan",S.mealPlan);
     S.view="plan";
-  }catch(e){S.generateError="Error: "+e.message;}
+  }catch(e){S.generateError="Error: "+e.message+(S.mealPlan&&!/kept your current plan/.test(e.message)?" (Your current plan is unchanged.)":"");}
   S.loading=false; render();
 }
 
@@ -1556,13 +1772,34 @@ function renderTabs(){
   ).join("")+'</div>';
 }
 
+function renderReviewBar(){
+  const marks=S.inventory.map(i=>reviewMarkOf(i.id));
+  const reviewed=marks.filter(Boolean).length, nCheck=marks.filter(m=>m==="check").length,
+        nNeed=marks.filter(m=>m==="need").length, total=S.inventory.length;
+  const F=S.invReviewFilter;
+  const seg=(id,label,n)=>'<button class="gf-seg'+(F===id?' active':'')+'" aria-pressed="'+(F===id)+'" onclick="setReviewFilter(\''+id+'\')">'+label+' ('+n+')</button>';
+  return '<div class="card" style="padding:14px 16px">'
+    +'<div class="rv-progress">'+reviewed+' of '+total+' reviewed · '+nNeed+' need · '+nCheck+' to check</div>'
+    +'<div class="gf-bar" style="margin-bottom:8px">'+seg("all","All",total)+seg("unreviewed","Unreviewed",total-reviewed)+seg("check","? To check",nCheck)+'</div>'
+    +(reviewed?'<div style="display:flex;justify-content:flex-end"><button class="link-btn" onclick="clearReview()">Clear review (start next week)</button></div>':'')
+    +'</div>';
+}
 function renderInventory(){
   const grouped={};
   CATEGORIES.forEach(c=>{const items=S.inventory.filter(i=>i.category===c);if(items.length)grouped[c]=items;});
   const groceryNorm=new Set(S.groceryList.map(g=>g.text.trim().toLowerCase()));
 
   // 3-state item row: In stock (🛒) → Need (✓ On list) → Skip (— Skip) → In stock
+  const reviewRow=item=>{
+    const m=reviewMarkOf(item.id);
+    const b=(mark,label)=>'<button class="rv-btn'+(m===mark?' on':'')+'" aria-pressed="'+(m===mark)+'" onclick="setReviewMark('+item.id+',\''+mark+'\')">'+label+'</button>';
+    return '<div class="pantry-item review-row'+(m?' marked':'')+'" data-inv-id="'+item.id+'"'+(invVisible(item)?'':' hidden')+'>'
+      +'<span class="rv-name">'+esc(item.name)+(item.qty?'<span class="rv-qty">'+esc(item.qty)+'</span>':'')+'</span>'
+      +'<div class="rv-seg">'+b("need","🛒 Need")+b("dont","— Don\'t need")+b("check","? Check")+'</div>'
+      +'</div>';
+  };
   const itemRow=item=>{
+    if(S.invReviewMode) return reviewRow(item);
     const stocked=isStocked(item);
     const norm=item.name.trim().toLowerCase();
     const inGrocery=groceryNorm.has(norm);
@@ -1573,7 +1810,7 @@ function renderInventory(){
       :isSkip
         ?'<button class="pantry-state-btn skip" onclick="cycleInventoryState('+item.id+')" title="Skipped — tap to restock">— Skip</button>'
         :'<button class="pantry-state-btn" onclick="cycleInventoryState('+item.id+')" title="Tap to add to grocery list">🛒 Need</button>';
-    return '<div class="pantry-item'+(!stocked?" unstocked":"")+'">'
+    return '<div class="pantry-item'+(!stocked?" unstocked":"")+'" data-inv-id="'+item.id+'"'+(invVisible(item)?'':' hidden')+'>'
       +'<input class="pantry-text" value="'+esc(item.name)+'" oninput="S.inventory=S.inventory.map(i=>i.id==='+item.id+'?{...i,name:this.value}:i)" onchange="updateInventoryItem('+item.id+',\'name\',this.value)">'
       +'<input class="pantry-qty" placeholder="qty" value="'+esc(item.qty||"")+'" oninput="S.inventory=S.inventory.map(i=>i.id==='+item.id+'?{...i,qty:this.value}:i)" onchange="updateInventoryItem('+item.id+',\'qty\',this.value)">'
       +stateBtn
@@ -1581,8 +1818,9 @@ function renderInventory(){
       +'</div>';
   };
 
+  const shownCount=S.inventory.filter(invVisible).length;
   const groups=Object.entries(grouped).map(([cat,items])=>
-    '<div class="cat-group"><div class="cat-label">'+cat+'</div><div class="pantry-list">'
+    '<div class="cat-group"'+(items.some(invVisible)?'':' hidden')+'><div class="cat-label">'+cat+'</div><div class="pantry-list">'
     +items.map(itemRow).join("")
     +'</div></div>'
   ).join("");
@@ -1594,13 +1832,21 @@ function renderInventory(){
     +'<div class="toolbar"><h2 class="section-title">What\'s in your pantry?</h2>'
     +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
     +(S.inventory.length?'<span class="inv-count">'+S.inventory.length+' items</span>':"")
+    +(S.inventory.length?'<button class="btn '+(S.invReviewMode?'btn-primary':'btn-secondary')+'" style="font-size:12px;padding:5px 11px" onclick="setReviewMode('+(!S.invReviewMode)+')">'+(S.invReviewMode?'✓ Done reviewing':'📋 Review')+'</button>':"")
     +(skipCount?'<button class="btn btn-secondary" style="font-size:12px;padding:5px 11px" onclick="addUnstockedToGrocery()">🛒 Add '+skipCount+' skipped</button>':"")
     +(S.scriptUrl?'<button class="btn btn-secondary" style="font-size:12px;padding:5px 11px" onclick="fetchSync()">'+( S.syncing?'↻ Syncing…':'↻ Sync now')+'</button>':"")
     +'</div></div>'
-    +'<p class="section-desc">Tap 🛒 Need to add to your grocery list. Tap again to skip, or a third time to restock. Items marked Need or Skip are excluded from AI meal planning.</p>'
+    +(S.invReviewMode
+      ?'<p class="section-desc">Work down the list. 🛒 Need adds an item to the grocery list; — Don\'t need takes it off; ? Check flags it for a look in the pantry or freezer. Tap a selected mark again to unmark. Marks stay until you clear them.</p>'
+       +renderReviewBar()
+      :'<p class="section-desc">Tap 🛒 Need to add to your grocery list. Tap again to skip, or a third time to restock. Items marked Need or Skip are excluded from AI meal planning.</p>')
+    +(S.inventory.length?'<div class="card" style="padding:14px 16px">'
+      +'<input id="inv-search" type="search" class="fi inv-search" placeholder="🔍 Search pantry" autocomplete="off" value="'+esc(S.invSearch)+'" oninput="setInvSearch(this.value)">'
+      +'<div id="inv-search-status" class="inv-search-status">'+invSearchStatusHtml(shownCount,S.inventory.length)+'</div>'
+      +'</div>':"")
     +'<div class="card">'
     +'<div class="add-row">'
-    +'<input class="fi name" placeholder="Item name" value="'+esc(S.newItem.name)+'" oninput="S.newItem.name=this.value" onkeydown="if(event.key===\'Enter\')addItem()">'
+    +'<input id="inv-add-name" class="fi name" placeholder="Item name" value="'+esc(S.newItem.name)+'" oninput="S.newItem.name=this.value" onkeydown="if(event.key===\'Enter\')addItem()">'
     +'<input class="fi qty" placeholder="Qty (e.g. 2 lbs)" value="'+esc(S.newItem.qty)+'" oninput="S.newItem.qty=this.value" onkeydown="if(event.key===\'Enter\')addItem()">'
     +'<select class="fi cat" onchange="S.newItem.category=this.value">'+CATEGORIES.map(c=>'<option'+(c===S.newItem.category?" selected":"")+'>'+c+'</option>').join("")+'</select>'
     +'<button class="btn btn-primary" onclick="addItem()">+ Add</button>'
@@ -1793,13 +2039,15 @@ function renderDayCard(dayData, isHero){
   const isRegen=S.regenDay===dayData.day;
   const noteVal=S.dayInstructions[dayData.day]||"";
   const composer='<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">'
-    +'<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Want something different for '+dayData.day+'?</div>'
+    +'<div style="font-size:12px;color:var(--muted);margin-bottom:6px">'+(noteVal.trim()
+      ?'🌱 Idea for '+dayData.day+' — ↻ Redo builds from this text (edit or clear it to change)'
+      :'Want something different for '+dayData.day+'?')+'</div>'
     +'<div style="display:flex;gap:8px">'
     // Disabled while regenerating: the steering text was snapshotted into the
     // generation record when the request launched, so mid-flight edits cannot
     // affect the pending candidate — leaving the field editable lies about that.
     +'<input id="composer-'+dayData.day+'" '+(isRegen?'disabled ':'')+'placeholder="e.g. more veggies, use the shrimp" value="'+esc(noteVal)+'" '
-    +'oninput="S.dayInstructions[\''+dayData.day+'\']=this.value" '
+    +'data-day-text="'+dayData.day+'" maxlength="200" oninput="setDayText(\''+dayData.day+'\',this)" '
     +'onkeydown="if(event.key===\'Enter\')generateCandidate(\''+dayData.day+'\')" '
     +'style="flex:1;font-family:\'IBM Plex Sans\',sans-serif;font-size:13px;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);outline:none">'
     +'<button class="btn btn-secondary" style="font-size:13px;padding:8px 14px;flex-shrink:0" '
@@ -1826,6 +2074,27 @@ function renderDayCard(dayData, isHero){
     +'</div></div></div>';
 }
 
+// "Seed the week": one input per day, bound to S.dayInstructions (the same
+// text the day-card composers show). Day names come from the DAYS constant,
+// so interpolating them into handlers is safe.
+function renderSeedPanel(collapsible){
+  const open=!collapsible||S.showSeeds;
+  const head='<div class="seed-head'+(collapsible?' toggle" onclick="toggleSeeds()':'')+'">'
+    +'<span class="seed-title">🌱 Seed the week'+(collapsible?' <span class="chevron'+(open?' open':'')+'">▼</span>':'')+'</span>'
+    +'<span id="seed-count" class="seed-count">'+seedCountText()+'</span>'
+    +'</div>';
+  if(!open) return '<div class="card" style="padding:14px 16px">'+head+'</div>';
+  const rows=DAYS.map(d=>'<div class="seed-row"><span class="seed-day">'+d.slice(0,3)+'</span>'
+    +'<input class="fi" data-day-text="'+d+'" maxlength="200" placeholder="e.g. Southwest skillet" value="'+esc(S.dayInstructions[d]||"")+'" '
+    +'oninput="setDayText(\''+d+'\',this)" onkeydown="if(event.key===\'Enter\')seedEnter(\''+d+'\')"></div>').join("");
+  return '<div class="card" style="padding:14px 16px">'+head
+    +'<p class="section-desc" style="margin:8px 0 10px;font-size:13px">Type a dinner idea for any day. Blank days are the AI\'s pick. '
+    +(S.mealPlan?'↻ Regenerate week':'Generate')+' builds the full recipe and ingredients around each idea.</p>'
+    +rows
+    +(seedCount()?'<div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="link-btn" onclick="clearSeeds()">Clear all ideas</button></div>':'')
+    +'</div>';
+}
+
 function renderPlanTab(){
   const noKey=!geminiKey();
   const summary=renderPrefsSummary();
@@ -1834,6 +2103,7 @@ function renderPlanTab(){
   if(!S.mealPlan){
     return '<div class="content">'
       +summary+warn
+      +renderSeedPanel(false)
       +'<div class="card" style="text-align:center;padding:40px 24px">'
       +'<div style="font-size:36px;margin-bottom:10px">🍽️</div>'
       +'<div class="section-title" style="margin-bottom:6px">No meal plan yet</div>'
@@ -1863,6 +2133,7 @@ function renderPlanTab(){
     +'<h2 class="section-title" style="margin-bottom:0">This Week</h2>'
     +'<button class="btn btn-secondary" style="font-size:13px" onclick="generatePlan()">↻ Regenerate week</button>'
     +'</div>'
+    +renderSeedPanel(true)
     +'<div class="week-grid">'+restHtml+'</div>'+shopping
     +renderQuickMeals()
     +'</div>';
