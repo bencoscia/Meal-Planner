@@ -52,6 +52,7 @@ const S = {
   showInvAdd: false,             // inventory add form expanded — session-only
   invReviewFilter: "all",        // "all"|"check"|"onlist" — PER-DEVICE localStorage (invReviewMode too)
   invOpenCats: [],               // expanded inventory category names — PER-DEVICE localStorage
+  invStockFilter: "all",         // "all"|"have"|"out" — normal-mode Inventory filter — session-only
   missingIngredients: [],        // [{text, invId|null, gid|null}] — recipe ingredients the user marked
                                  // "don't have". PERSISTED + SYNCED (originally ephemeral; iOS PWA reloads
                                  // wiped it between regens, so excluded items came back — the "salmon
@@ -196,12 +197,18 @@ doPost(e) → parses e.postData.contents as JSON, then:
 ## 4. Feature Modules
 
 ### Inventory (`renderInventory`)
-A **persistent catalog**, not a real-time stock tracker. Items never disappear — they're always visible as a scannable reference. The old stocked/unstocked checkbox was replaced by a **3-state cycling button** per item (`cycleInventoryState`), same interaction pattern as `cycleGroceryStore`:
+A **persistent catalog**, not a real-time stock tracker. Items never disappear — they're always visible as a scannable reference.
 
-1. **In stock** (default) — normal text, muted "🛒 Need" button. AI uses this ingredient.
-2. **Need** — tap → marks `stocked:false` + adds to grocery list. Italic text, accent-colored "✓ On list" badge. AI excludes.
-3. **Skip** — tap again → removes from grocery list, stays `stocked:false`. Italic text, warn-colored "— Skip" badge. AI still excludes. Use case: out of stock but not buying this trip (seasonal, other store, skipping this week).
-4. Tap again → back to **In stock** (`stocked:true`), clears any linked `missingIngredients` entries (same cleanup `toggleStocked` used to do).
+**Explicit stock (replaces the 3-state In stock → Need → Skip cycle).** Each row has two independent controls: **✓ Have / — Out** (`toggleStock`) and **🛒** (`toggleOnList`). Out = dashed border + italic + "— Out" text; 🛒 on = filled + "✓🛒" (not hue alone).
+- **What the planner sees — ONE source:** `plannerPantryItems()` = items that are **on hand** and in a food category; `plannerPantryLine()` builds the PANTRY prompt line from it (both prompt builders), and every on-screen count uses it.
+- **On hand is DERIVED:** `onHand(item) = stocked !== false && !onGroceryList(item)`. Items reach the list by paths that never touch stock (manual add, plan import, scan, Siri), so "on the list ⇒ Out" holds by definition, not by trusting every writer. (Caught in a screenshot: Dairy showed "3 on list · 2 out" before this.) Checking an entry off (bought) makes the item on hand again if its stored flag is true.
+- **Writers:** `setOnList(id,true)` → `stocked:false` + list entry (re-opens a checked one; clears ? Check). `setOnList(id,false)` → removes unchecked entries, **stock untouched** (taking it off the list ≠ having it). `setStock(id,true)` → `stocked:true` + unchecked entries removed + ∅ links cleared. `setStock(id,false)` → **list untouched** ("don't have it, not buying it" — one tap; previously two taps through Need). Review-mode 🛒 Need calls the same `toggleOnList` (one meaning everywhere).
+- **Out is not a ban.** Out items are simply absent from PANTRY; the model may still use one, marked * / 🛒 to buy ("Prioritize pantry" pushes against it). Only ∅ (`missingIngredients`) and Avoid exclude. The old UI text claiming Need/Skip were "excluded from AI meal planning" was wrong and is gone.
+- **Non-food categories** (`NON_FOOD_CATEGORIES`: Household, Health & Baby) are never sent to the planner regardless of stock; their open category says "Not used by the meal planner".
+- **Empty-pantry trap fixed:** the PANTRY line used to fall back to "assume a well-stocked kitchen" whenever nothing was stocked — so marking everything Out told the model you had everything. Now that fallback applies only to an empty inventory; all-Out sends "Nothing on hand except salt, pepper and cooking oil".
+- **Visibility:** a card at the top reads "The meal planner assumes you have N of M food items" with filter chips All / ✓ Have / — Out (`S.invStockFilter`, session-only; forces categories open like any filter). Category heads show "· N out". The Meal Plan prefs summary shows "N pantry items on hand".
+- **Bulk per category:** an open category (normal mode) has "All ✓ Have" / "All — Out" (`setCatStock(idx, have)`, index not name). Undo via the toast is **targeted** — restores each item's prior flag, re-adds the grocery entries and ∅ links that call removed — never a whole-array snapshot, so edits synced in between survive. `S.invUndo` is now `{type:"delete",…}|{type:"bulk",…}`; `undoInvDelete` dispatches.
+- Removed: the "🛒 Add N skipped" toolbar button (Out now means "not buying"). `cycleInventoryState` and `addUnstockedToGrocery` remain defined but are no longer wired to the UI.
 
 **Rows are read-only; editing and delete live behind the name (Session A).** A row is a name button (name + muted qty) and the state button — no inputs, no ×. Previously every row was two live text inputs plus a 20px × right beside 🛒 Need: a scroll that landed on a name popped the keyboard (and zoomed, §10), and one stray tap deleted an item with no confirm and no undo, synced to both phones. Now:
 - **Tap the name → inline editor** (`openInvEdit`): name, qty, category select, ✓ Save / Cancel / 🗑 Delete. No autofocus (opening to delete shouldn't pop the keyboard). Drafts live in `S.invEdit` (oninput, no render — Guard 1); `commitInvEdit` trims, refuses an empty name with an alert (editor stays open), coerces an unknown category to "Other", and is a no-op if the item was deleted remotely mid-edit. All three handlers blur first so Guard 1 can't swallow the render.
@@ -221,7 +228,7 @@ State is conveyed by text style (normal vs italic) + badge text ("On list" / "Sk
 
 **Weekly review mode (Session C redesign).** "📋 Review" swaps each row for a read-only name + two independent toggles: **🛒 Need** and **? Check**. **Unmarked = "don't need"** — you only tap exceptions (the earlier three-way Need/Don't need/Check design made you decide every one of 247 items). Selected = filled accent + white bold text + a "✓ " prefix + `aria-pressed` (not hue alone).
 - **Need is derived, never stored:** `onGroceryList(item)` = an *unchecked* grocery entry with the item's exact normalized name. A Need added by ∅, Siri, or by hand shows up; removing the entry anywhere clears it. No stale marks.
-- **`toggleReviewNeed` has the same semantics as normal-mode Need** (one meaning everywhere): on → `stocked:false` + on the list (re-opens a checked entry rather than duplicating) + clears that item's Check; off → unchecked entries removed + `stocked:true` + linked ∅ exclusions cleared. This is safe only because Clear checked now restocks (below); before that, Need-on-then-buy rotted stock state.
+- **`toggleReviewNeed` = `toggleOnList`** (one writer, one meaning in both modes): on → Out + on the list + clears that item's Check; off → off the list, **stock left Out** (changed with explicit stock — taking it off the list isn't a claim you have it; the row shows "· out" so a mis-tap is visible). Clear checked restocks bought items (below).
 - **Check** is the only stored mark (`S.invReview`, synced, values validated on every read; old need/dont marks dropped on load). `toggleReviewCheck` flips it. "Clear ? Check flags" (confirm) wipes them — grocery list and stock untouched.
 - Review bar: "6 on list · 4 to check"; filters **All / ? To check / 🛒 On list**. Review mode and filter persist per device (`invReviewMode`, `invReviewFilter` in localStorage). Normal-mode `cycleInventoryState` still clears that item's Check.
 - **Visibility invariant:** `invVisible(item) = invMatches(search) && reviewFilterMatches(item)` is the single predicate for both the render path and the typing DOM patch.
