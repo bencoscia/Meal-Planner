@@ -46,6 +46,9 @@ const S = {
   invSearch: "",                 // inventory search query — session-only
   invReview: {},                 // {[itemId]: "need"|"dont"|"check"} — weekly review marks. PERSISTED + SYNCED.
   invReviewMode: false,          // Inventory tab in review mode — session-only
+  invEdit: null,                 // {id,name,qty,category} drafts for the inventory row being edited — session-only
+  invUndo: null,                 // {item,index} last deleted pantry item (undo toast) — session-only
+  showInvAdd: false,             // inventory add form expanded — session-only
   invReviewFilter: "all",        // "all"|"unreviewed"|"check" — session-only
   missingIngredients: [],        // [{text, invId|null, gid|null}] — recipe ingredients the user marked
                                  // "don't have". PERSISTED + SYNCED (originally ephemeral; iOS PWA reloads
@@ -198,6 +201,12 @@ A **persistent catalog**, not a real-time stock tracker. Items never disappear �
 3. **Skip** — tap again → removes from grocery list, stays `stocked:false`. Italic text, warn-colored "— Skip" badge. AI still excludes. Use case: out of stock but not buying this trip (seasonal, other store, skipping this week).
 4. Tap again → back to **In stock** (`stocked:true`), clears any linked `missingIngredients` entries (same cleanup `toggleStocked` used to do).
 
+**Rows are read-only; editing and delete live behind the name (Session A).** A row is a name button (name + muted qty) and the state button — no inputs, no ×. Previously every row was two live text inputs plus a 20px × right beside 🛒 Need: a scroll that landed on a name popped the keyboard (and zoomed, §10), and one stray tap deleted an item with no confirm and no undo, synced to both phones. Now:
+- **Tap the name → inline editor** (`openInvEdit`): name, qty, category select, ✓ Save / Cancel / 🗑 Delete. No autofocus (opening to delete shouldn't pop the keyboard). Drafts live in `S.invEdit` (oninput, no render — Guard 1); `commitInvEdit` trims, refuses an empty name with an alert (editor stays open), coerces an unknown category to "Other", and is a no-op if the item was deleted remotely mid-edit. All three handlers blur first so Guard 1 can't swallow the render.
+- **Delete → undo toast** (`deleteInvItem` / `undoInvDelete`): single slot `S.invUndo = {item, index}`; undo re-inserts at the original index and is a no-op if the item already came back (e.g. via sync). The slot is dropped on tab switch. Session-only by design.
+- **Add form collapsed** behind a "+ Add item" button (`S.showInvAdd`); always open when the inventory is empty. Search's "+ Add “q”" opens it.
+- Renaming still doesn't follow the grocery-list name link (pre-existing: the Need/Skip state matches grocery entries by name).
+
 State is conveyed by text style (normal vs italic) + badge text ("On list" / "Skip" / "Need"), never color alone (protanopia rule). Skip state is derived (`stocked===false && not on grocery list`), not a new field. A bulk **"🛒 Add N skipped"** button in the toolbar converts all Skip items to Need (adds them to grocery). Name and quantity remain inline-editable `<input>`s (same oninput/onchange split as Guard 1 requires).
 
 **Categories** expanded from 7 to 11: Produce, Protein, Dairy, Grains, Pantry, **Snacks**, Frozen, **Beverages**, **Health & Baby**, **Household**, Other. Non-food items (toiletries, cleaning supplies, etc.) sit in the inventory grid; the AI ignores them naturally since they're not ingredients.
@@ -219,7 +228,7 @@ State is conveyed by text style (normal vs italic) + badge text ("On list" / "Sk
 Wide-screen layout: pantry categories render into `.pantry-grid` (`grid-template-columns:repeat(auto-fit,minmax(260px,1fr))`), letting multiple category cards sit side-by-side on desktop while collapsing to one column on narrow viewports automatically (no separate media query needed for the column count — `auto-fit` handles it).
 
 ### Grocery (`renderGrocery`)
-One data list, rendered into **two overlapping sections** — "🏪 Grocery Store" and "📦 Costco" — by filtering on the `store` field. An item tagged `either` appears in both. Each item has a cycling pill (`cycleGroceryStore`, order: grocery → costco → either → …) instead of a dropdown, for one-tap mobile changes. Checked items collapse into a single flat "Checked off" section at the bottom (not split by store — once purchased, the distinction stops mattering) with a "Clear checked" bulk action.
+One data list. **All view:** three disjoint sections — "🏪 Grocery Store" (store `grocery`), "📦 Costco" (`costco`), "🔀 Either store" (`either` or missing) — **each item appears exactly once.** (It used to render `either` items under both stores: 9 items to get showed as 15 rows.) **One-store views** (🏪 / 📦 filter) still include `either` items via `inStore()`, since you're in that store. Source badges (PANTRY / MEAL PLAN / SIRI) are no longer rendered — useless in the aisle; `source` is still stored and used for plan-swap provenance. Each item has a cycling pill (`cycleGroceryStore`, order: grocery → costco → either → …) instead of a dropdown, for one-tap mobile changes. Checked items collapse into a single flat "Checked off" section at the bottom (not split by store — once purchased, the distinction stops mattering) with a "Clear checked" bulk action.
 
 Voice input arrives via the Siri Shortcut → Apps Script `addGrocery` action (see §3) and appears here on the next sync poll.
 
@@ -308,7 +317,7 @@ Seven themes ship: **Slate** (cool default), **Ink** (warm dark), **Cobalt** (co
 
 **Layout:** `.content` max-width 1140px, but individual form-style `.card`s (add-item rows, quick-add) are separately capped at 720px and centered — widening the outer container without this would have stretched text inputs across the full page width. Multi-item lists (`.week-grid`, `.pantry-grid`) use `grid-template-columns:repeat(auto-fit,minmax(Npx,1fr))` specifically so they reflow to the right column count at any width without extra breakpoints.
 
-**Tab bar:** styled as bold "index tabs" (folder-tab metaphor — raised/bordered when active, flush otherwise), not thin underlines, matching the app's "labeled kitchen system" identity.
+**Tab bar:** on wide screens, bold "index tabs" (folder-tab metaphor — raised/bordered when active). **At ≤700px it becomes a fixed bottom bar** (thumb reach; the inventory is ~14 screens tall and the top tabs used to scroll away): icon over label, active = bold + filled `--accent-light` + a 3px top bar + `aria-current="page"` (not hue alone). Uses `env(safe-area-inset-bottom)` — requires `viewport-fit=cover` in the viewport meta. `body` gets matching bottom padding; the undo toast sits above the bar. `setView` now scrolls to top on an actual tab change (render() preserves scrollY, which landed the next tab mid-page) and drops edit/undo state.
 
 ---
 
@@ -341,3 +350,13 @@ Being direct about real debt, as opposed to the fragility points above (which ar
 - **`dayInstructions` and `theme` are the only two pieces of "preference-shaped" state that are deliberately not synced.** `dayInstructions` is now persisted per-device (it doubles as the week's seeds) but still not synced — seeds typed on one phone don't appear on the other. Judgment call (draft input; theme is personal taste) — revisit if spouses want to seed the week together.
 - **Buying never restocks inventory.** Checking off or clearing a grocery item doesn't touch the matching pantry item, so bought items stay `stocked:false` (Skip) and the AI keeps excluding them until someone cycles them to In stock. Review mode's Don't need deliberately doesn't restock either. Candidate fix: restock matching pantry items when checked groceries are cleared.
 - **Full-week generate has no FIXED-vs-MISSING resolution** — only `generateCandidate` does the deterministic override; `generatePlan` still lists fixed meals alongside the missing-ingredient constraint and lets the model arbitrate.
+
+---
+
+## 10. Phone usability rules (Session A, from the Oct 2026 phone UX audit)
+
+Enforced by one CSS block at the **end** of the stylesheet ("Phone usability") so it wins over earlier rules. Don't add per-component exceptions — fix the component.
+- **All `input/select/textarea` are 16px (`!important`, beats inline styles).** iOS Safari zooms the page on focus of any field under 16px and stays zoomed. Any new field inherits this; never set a smaller font on a field.
+- **Tap targets ≥40px** in the smaller dimension (Apple's guideline is 44pt). `.btn`, header buttons, filter chips, review buttons, state buttons, `.fi`, `.link-btn`: `min-height:40px`. Icon buttons (`.rm-btn`, `.ged-open`): 40×40. Where the visual should stay small, the hit area is expanded instead: grocery checkbox via padding + negative margin, store pill via a `::after` with negative inset. Ingredient ∅ is 44×36 in a 40px row, borderless until `on`. Rows trimmed to 4px padding so the 40px control sets row height (~49px).
+- **Verified by measurement, not by CSS reading:** a Playwright pass at 390×844 probes each visible control with `elementFromPoint` from its centre outward (effective hit area, including pseudo-elements and occlusion). Remaining under-40 hits: ∅ at 36px tall (by design), Quick-meal chip × at 32px wide, and one-offs at the viewport edge occluded by the fixed bar. Re-run after layout changes.
+- **No destructive control on a list row.** Delete lives in an editor and has undo.

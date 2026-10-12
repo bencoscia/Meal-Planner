@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Pantry Planner</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600;700&display=swap');
@@ -336,6 +336,55 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--tex
   .settings-panel{padding:20px 18px;}
   .theme-grid{grid-template-columns:1fr 1fr;}
 }
+
+/* ═══ Phone usability (Session A, AUDIT.md §10) ═══════════════════════════ */
+/* iOS Safari zooms the page on focus of any field under 16px and stays zoomed.
+   One rule, !important so it also beats inline styles (prompt textareas). */
+input, select, textarea{font-size:16px!important;}
+/* Tap targets: every control ≥40px in its smaller dimension (Apple: 44pt). */
+.btn, .settings-btn, .gf-seg, .rv-btn, .pantry-state-btn{min-height:40px;}
+.link-btn{min-height:40px;padding:0 4px;}
+.rm-btn, .ged-open{min-width:40px;min-height:40px;display:inline-flex;align-items:center;justify-content:center;}
+.grocery-check{padding:9px;margin:-9px -4px -9px -9px;}            /* 22px box → 40px hit area */
+.grocery-store-tag{position:relative;}
+.grocery-store-tag::after{content:"";position:absolute;inset:-12px -4px;} /* pill → 40px tall hit area */
+.ing-row{min-height:40px;}
+.fi{min-height:40px;}
+.inv-chip button{min-width:32px;min-height:40px;margin:-8px -10px -8px 0;}   /* chip × : 40px tall hit area */
+.edit-link{min-height:40px;min-width:44px;padding:0!important;display:inline-flex;align-items:center;}
+.pantry-item, .grocery-item{padding:4px 4px;}   /* 40px controls set the row height; trim padding so rows stay ~49px */
+.pantry-item.editing{padding:10px;}
+.ing-missing-btn{min-width:44px;min-height:36px;}
+.ing-missing-btn:not(.on){border-color:transparent;background:transparent;}  /* big hit area, light visual weight; the "on" state keeps its border + "✕ excluded" text */
+.day-redo-btn{min-width:40px;min-height:40px;background:none;border:1px solid var(--border);border-radius:8px;font-size:15px;cursor:pointer;color:var(--muted);}
+/* Inventory rows are read-only text; tap the name to edit (no live inputs to
+   catch a scroll, no keyboard pop, no zoom). */
+.pantry-name{flex:1;min-width:0;min-height:40px;display:flex;align-items:center;gap:8px;text-align:left;background:none;border:none;padding:0 4px;font-family:'IBM Plex Sans',sans-serif;font-size:15px;color:var(--text);cursor:pointer;}
+.pantry-name .pn-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pantry-name .pn-qty{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);flex-shrink:0;}
+.pantry-item.unstocked .pantry-name{font-style:italic;color:var(--muted);}
+.pantry-item.editing{flex-wrap:wrap;background:var(--bg);border-radius:8px;padding:10px;}
+.pantry-item.editing .fi{flex:1 1 100%;min-width:0;}
+.ied-actions{display:flex;gap:8px;width:100%;align-items:center;}
+.ied-actions .ied-del{margin-left:auto;}
+/* Undo toast: fixed, above the bottom tab bar on phones. */
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:20px;z-index:60;display:flex;align-items:center;gap:12px;max-width:calc(100% - 24px);
+  background:var(--text);color:var(--bg);border-radius:10px;padding:6px 6px 6px 14px;font-size:14px;box-shadow:0 4px 16px rgba(0,0,0,0.25);}
+.toast span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.toast button{min-height:40px;background:transparent;color:inherit;border:1.5px solid currentColor;border-radius:8px;padding:0 12px;font-weight:700;font-size:14px;cursor:pointer;flex-shrink:0;}
+.tab-ico{margin-right:6px;}
+/* Phones: tabs become a fixed bottom bar in thumb reach. Active tab = bold +
+   filled + a top bar — not hue alone. */
+@media(max-width:700px){
+  .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:50;gap:6px;border-bottom:none;border-top:1px solid var(--border);
+    background:var(--surface);padding:6px 8px calc(6px + env(safe-area-inset-bottom,0px));box-shadow:0 -2px 10px rgba(0,0,0,0.06);}
+  .tab-item{top:0;border:none;border-radius:10px;min-height:48px;padding:6px 4px;font-size:12px;letter-spacing:0;text-transform:none;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:transparent;}
+  .tab-item.active{background:var(--accent-light);color:var(--text);font-weight:700;box-shadow:inset 0 3px 0 var(--accent);}
+  .tab-ico{margin-right:0;font-size:18px;line-height:1;}
+  body{padding-bottom:calc(64px + env(safe-area-inset-bottom,0px));}
+  .toast{bottom:calc(74px + env(safe-area-inset-bottom,0px));}
+}
 </style>
 </head>
 <body>
@@ -634,6 +683,9 @@ const S={
   invSearch:"",            // inventory search query — session-only
   invReview:{},            // {[itemId]: "need"|"dont"|"check"} — weekly review marks. PERSISTED + SYNCED.
                            // A log of this week's decisions, separate from stock state. See AUDIT.md §4.
+  invEdit:null,            // {id,name,qty,category} — inventory row being edited (drafts) — session-only
+  invUndo:null,            // {item,index} — last deleted pantry item, for the undo toast — session-only
+  showInvAdd:false,        // inventory add form expanded — session-only
   invReviewMode:false,     // Inventory tab in review mode — session-only
   invReviewFilter:"all",   // "all"|"unreviewed"|"check" — session-only
   missingIngredients:[],   // [{text, invId|null, gid|null}] — persisted AND synced (see AUDIT.md §3/§4);
@@ -795,6 +847,47 @@ function addItem(){
   S.newItem={name:"",qty:"",category:S.newItem.category};
 }
 function removeItem(id){ setInv(S.inventory.filter(i=>i.id!==id)); }
+// ── Inventory row edit (tap name → inline editor) ───────────────────────────
+// Rows are read-only text; editing and delete live here, so no control on the
+// list itself can destroy data with one stray tap. Drafts bind oninput to
+// S.invEdit (no render while typing — Guard 1); Save commits all fields at once.
+function openInvEdit(id){
+  const it=S.inventory.find(i=>i.id===id); if(!it) return;
+  S.invEdit={id, name:it.name, qty:it.qty||"", category:it.category};
+  render();
+}
+function cancelInvEdit(){
+  S.invEdit=null;
+  if(document.activeElement&&document.activeElement.blur) document.activeElement.blur();
+  render();
+}
+function commitInvEdit(){
+  const d=S.invEdit; if(!d) return;
+  const name=d.name.trim();
+  if(!name){ alert("Item name can't be empty."); return; }   // fail loudly, keep the editor open
+  S.invEdit=null;
+  if(document.activeElement&&document.activeElement.blur) document.activeElement.blur();
+  if(!S.inventory.some(i=>i.id===d.id)){ render(); return; }  // deleted remotely mid-edit
+  const category=CATEGORIES.includes(d.category)?d.category:"Other";
+  setInv(S.inventory.map(i=>i.id===d.id?{...i,name,qty:d.qty.trim(),category}:i));
+}
+// Delete with a single-slot undo (toast). Undo re-inserts at the original index.
+function deleteInvItem(id){
+  const index=S.inventory.findIndex(i=>i.id===id); if(index<0) return;
+  S.invUndo={item:S.inventory[index], index};
+  S.invEdit=null;
+  if(document.activeElement&&document.activeElement.blur) document.activeElement.blur();
+  setInv(S.inventory.filter(i=>i.id!==id));
+}
+function undoInvDelete(){
+  const u=S.invUndo; if(!u) return;
+  S.invUndo=null;
+  if(S.inventory.some(i=>i.id===u.item.id)){ render(); return; }   // already back (e.g. via sync)
+  const next=[...S.inventory]; next.splice(Math.min(u.index,next.length),0,u.item);
+  setInv(next);
+}
+function dismissInvUndo(){ S.invUndo=null; render(); }
+function toggleInvAdd(){ S.showInvAdd=!S.showInvAdd; if(document.activeElement&&document.activeElement.blur) document.activeElement.blur(); render(); if(S.showInvAdd){ const el=document.getElementById("inv-add-name"); if(el) el.focus(); } }
 function updateInventoryItem(id,field,value){
   const updated=S.inventory.map(i=>i.id===id?{...i,[field]:value}:i);
   setAndSync("inventory", updated);
@@ -915,6 +1008,7 @@ function clearInvSearch(){
 function prefillAddFromSearch(){
   S.newItem.name=S.invSearch.trim();
   S.invSearch="";
+  S.showInvAdd=true;
   if(document.activeElement&&document.activeElement.blur) document.activeElement.blur(); // else Guard 1 skips the render
   render();
   const el=document.getElementById("inv-add-name");
@@ -1728,7 +1822,15 @@ function renderHeader(){
     +'</div></div>';
 }
 
-function setView(v){ S.view=v; render(); }
+function setView(v){
+  const changed=S.view!==v;
+  S.view=v; S.invEdit=null; S.invUndo=null;
+  if(document.activeElement&&document.activeElement.blur) document.activeElement.blur();
+  render();
+  // Each tab opens at its top: render() preserves scrollY, which after a long
+  // inventory scroll would land the next tab mid-page.
+  if(changed) window.scrollTo(0,0);
+}
 
 function todayDayName(){
   return new Date().toLocaleDateString("en-US",{weekday:"long"});
@@ -1756,19 +1858,19 @@ function renderPrefsSummary(){
   if(S.fixedMeals.length) parts.push(S.fixedMeals.length+(S.fixedMeals.length===1?" fixed meal":" fixed meals"));
   return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--muted);flex-wrap:wrap">'
     +'<span>'+esc(parts.join(" · "))+'</span>'
-    +'<button style="background:none;border:none;color:var(--accent);font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0" onclick="S.showPreferences=true;render()">Edit</button>'
+    +'<button class="edit-link" style="background:none;border:none;color:var(--accent);font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0" onclick="S.showPreferences=true;render()">Edit</button>'
     +'</div>';
 }
 
 function renderTabs(){
   const groceryCount=S.groceryList.filter(g=>!g.checked).length;
   const tabs=[
-    {v:"plan", l:"Meal Plan"},
-    {v:"inventory", l:"Inventory"},
-    {v:"grocery", l:"Grocery"+(groceryCount?" ("+groceryCount+")":"")},
+    {v:"plan", i:"🍽", l:"Meal Plan"},
+    {v:"inventory", i:"🫙", l:"Inventory"},
+    {v:"grocery", i:"🛒", l:"Grocery"+(groceryCount?" ("+groceryCount+")":"")},
   ];
   return '<div class="tabbar">'+tabs.map(t=>
-    '<div class="tab-item'+(S.view===t.v?" active":"")+'" onclick="setView(\''+t.v+'\')">'+t.l+'</div>'
+    '<div class="tab-item'+(S.view===t.v?" active":"")+'" role="button" aria-current="'+(S.view===t.v?"page":"false")+'" onclick="setView(\''+t.v+'\')"><span class="tab-ico">'+t.i+'</span><span>'+t.l+'</span></div>'
   ).join("")+'</div>';
 }
 
@@ -1798,8 +1900,23 @@ function renderInventory(){
       +'<div class="rv-seg">'+b("need","🛒 Need")+b("dont","— Don\'t need")+b("check","? Check")+'</div>'
       +'</div>';
   };
+  const editRow=item=>{
+    const d=S.invEdit;
+    const hid=invVisible(item)?'':' hidden';
+    const key=ev=>'onkeydown="if(event.key===\'Enter\')commitInvEdit();if(event.key===\'Escape\')cancelInvEdit()"';
+    return '<div class="pantry-item editing" data-inv-id="'+item.id+'"'+hid+'>'
+      +'<input id="ied-name" class="fi" value="'+esc(d.name)+'" placeholder="Item name" oninput="S.invEdit.name=this.value" '+key()+'>'
+      +'<input class="fi" value="'+esc(d.qty)+'" placeholder="Qty (optional)" oninput="S.invEdit.qty=this.value" '+key()+'>'
+      +'<select class="fi" onchange="S.invEdit.category=this.value">'+CATEGORIES.map(c=>'<option'+(c===d.category?" selected":"")+'>'+c+'</option>').join("")+'</select>'
+      +'<div class="ied-actions">'
+      +'<button class="btn btn-primary" onclick="commitInvEdit()">✓ Save</button>'
+      +'<button class="btn btn-secondary" onclick="cancelInvEdit()">Cancel</button>'
+      +'<button class="btn btn-secondary ied-del" onclick="deleteInvItem('+item.id+')">🗑 Delete</button>'
+      +'</div></div>';
+  };
   const itemRow=item=>{
     if(S.invReviewMode) return reviewRow(item);
+    if(S.invEdit&&S.invEdit.id===item.id) return editRow(item);
     const stocked=isStocked(item);
     const norm=item.name.trim().toLowerCase();
     const inGrocery=groceryNorm.has(norm);
@@ -1811,10 +1928,8 @@ function renderInventory(){
         ?'<button class="pantry-state-btn skip" onclick="cycleInventoryState('+item.id+')" title="Skipped — tap to restock">— Skip</button>'
         :'<button class="pantry-state-btn" onclick="cycleInventoryState('+item.id+')" title="Tap to add to grocery list">🛒 Need</button>';
     return '<div class="pantry-item'+(!stocked?" unstocked":"")+'" data-inv-id="'+item.id+'"'+(invVisible(item)?'':' hidden')+'>'
-      +'<input class="pantry-text" value="'+esc(item.name)+'" oninput="S.inventory=S.inventory.map(i=>i.id==='+item.id+'?{...i,name:this.value}:i)" onchange="updateInventoryItem('+item.id+',\'name\',this.value)">'
-      +'<input class="pantry-qty" placeholder="qty" value="'+esc(item.qty||"")+'" oninput="S.inventory=S.inventory.map(i=>i.id==='+item.id+'?{...i,qty:this.value}:i)" onchange="updateInventoryItem('+item.id+',\'qty\',this.value)">'
+      +'<button class="pantry-name" title="Edit or delete" onclick="openInvEdit('+item.id+')"><span class="pn-text">'+esc(item.name)+'</span>'+(item.qty?'<span class="pn-qty">'+esc(item.qty)+'</span>':'')+'</button>'
       +stateBtn
-      +'<button class="rm-btn" onclick="removeItem('+item.id+')">×</button>'
       +'</div>';
   };
 
@@ -1839,21 +1954,25 @@ function renderInventory(){
     +(S.invReviewMode
       ?'<p class="section-desc">Work down the list. 🛒 Need adds an item to the grocery list; — Don\'t need takes it off; ? Check flags it for a look in the pantry or freezer. Tap a selected mark again to unmark. Marks stay until you clear them.</p>'
        +renderReviewBar()
-      :'<p class="section-desc">Tap 🛒 Need to add to your grocery list. Tap again to skip, or a third time to restock. Items marked Need or Skip are excluded from AI meal planning.</p>')
+      :'<p class="section-desc">Tap 🛒 Need to add to your grocery list. Tap again to skip, or a third time to restock. Items marked Need or Skip are excluded from AI meal planning. Tap a name to edit or delete it.</p>')
     +(S.inventory.length?'<div class="card" style="padding:14px 16px">'
       +'<input id="inv-search" type="search" class="fi inv-search" placeholder="🔍 Search pantry" autocomplete="off" value="'+esc(S.invSearch)+'" oninput="setInvSearch(this.value)">'
       +'<div id="inv-search-status" class="inv-search-status">'+invSearchStatusHtml(shownCount,S.inventory.length)+'</div>'
       +'</div>':"")
-    +'<div class="card">'
+    +(S.inventory.length&&!S.showInvAdd
+      ?'<button class="btn btn-secondary" style="width:100%;justify-content:center;margin-bottom:16px" onclick="toggleInvAdd()">+ Add item</button>'
+      :'<div class="card">'
     +'<div class="add-row">'
     +'<input id="inv-add-name" class="fi name" placeholder="Item name" value="'+esc(S.newItem.name)+'" oninput="S.newItem.name=this.value" onkeydown="if(event.key===\'Enter\')addItem()">'
     +'<input class="fi qty" placeholder="Qty (e.g. 2 lbs)" value="'+esc(S.newItem.qty)+'" oninput="S.newItem.qty=this.value" onkeydown="if(event.key===\'Enter\')addItem()">'
     +'<select class="fi cat" onchange="S.newItem.category=this.value">'+CATEGORIES.map(c=>'<option'+(c===S.newItem.category?" selected":"")+'>'+c+'</option>').join("")+'</select>'
     +'<button class="btn btn-primary" onclick="addItem()">+ Add</button>'
     +'</div>'
+    +(S.inventory.length?'<div style="display:flex;justify-content:flex-end;margin-top:6px"><button class="link-btn" onclick="toggleInvAdd()">Close</button></div>':'')
     +(S.inventory.length===0?'<div class="empty-state"><div class="icon">🫙</div><div>Add your first item, or continue and the AI will assume a well-stocked kitchen.</div></div>':"")
-    +'</div>'
+    +'</div>')
     +(S.inventory.length>0?'<div class="pantry-grid">'+groups+'</div>':"")
+    +(S.invUndo?'<div class="toast" role="status"><span>Deleted “'+esc(S.invUndo.item.name)+'”</span><button onclick="undoInvDelete()">↶ Undo</button><button aria-label="Dismiss" onclick="dismissInvUndo()">✕</button></div>':'')
     +'</div>';
 }
 
@@ -2059,7 +2178,7 @@ function renderDayCard(dayData, isHero){
     +'<div style="display:flex;align-items:center;gap:8px">'
     +(isRegen?'<span style="font-size:12px;color:var(--muted)">Regenerating…</span>'
       :(dinner&&!isHero?'<span class="meal-badge">'+esc(dinner.name)+'</span>':""))
-    +'<button style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:12px;cursor:pointer;color:var(--muted)" '
+    +'<button class="day-redo-btn" title="Suggest a different dinner" aria-label="Suggest a different dinner for '+dayData.day+'" '
     +'onclick="event.stopPropagation();generateCandidate(\''+dayData.day+'\')" '
     +(isRegen?'disabled ':'')+'>↻</button>'
     +(isHero?"":'<span class="chevron'+(open?" open":"")+'">▼</span>')
@@ -2169,7 +2288,6 @@ function renderGrocery(){
   const F=S.groceryFilter||"all";
   const unchecked=S.groceryList.filter(i=>!i.checked&&inStore(i,F));
   const checked=S.groceryList.filter(i=>i.checked&&inStore(i,F));
-  const sourceLabel=s=>s==="siri"?"Siri":s==="plan"?"Meal Plan":s==="pantry"?"Pantry":"";
   const storeLabel=s=>s==="costco"?"Costco":s==="grocery"?"Grocery":"Either";
 
   const itemRow=item=>{
@@ -2193,7 +2311,6 @@ function renderGrocery(){
     +'</label>'
     +'<span class="grocery-text">'+esc(item.text)+(item.qty?'<span class="grocery-qty"> · '+esc(item.qty)+'</span>':"")+'</span>'
     +'<button class="ged-open" title="Edit name / quantity" onclick="editGroceryItem('+item.id+')">✎</button>'
-    +(sourceLabel(item.source)?'<span class="grocery-source">'+sourceLabel(item.source)+'</span>':"")
     +(!item.checked?'<button class="grocery-store-tag" onclick="cycleGroceryStore('+item.id+')" title="Tap to change store">'+storeLabel(item.store)+'</button>':"")
     +'<button class="rm-btn" onclick="removeGroceryItem('+item.id+')">×</button>'
     +'</div>';
@@ -2212,8 +2329,13 @@ function renderGrocery(){
     ?'<div class="gf-bar">'+seg("all","All")+seg("grocery","🏪 Grocery")+seg("costco","📦 Costco")+'</div>'
     :"";
 
-  const groceryItems=unchecked.filter(i=>(i.store||"either")!=="costco");
-  const costcoItems=unchecked.filter(i=>(i.store||"either")!=="grocery");
+  // All view: each item appears exactly once — "either" items get their own
+  // section (they used to render under BOTH stores: 9 items → 15 rows).
+  // One-store views still include them via inStore().
+  const st=i=>i.store||"either";
+  const groceryOnly=unchecked.filter(i=>st(i)==="grocery");
+  const costcoOnly=unchecked.filter(i=>st(i)==="costco");
+  const eitherItems=unchecked.filter(i=>st(i)!=="grocery"&&st(i)!=="costco");
 
   const storeSection=(label,items)=>items.length
     ?'<div style="margin-bottom:18px"><div class="cat-label">'+label+' ('+items.length+')</div>'
@@ -2240,7 +2362,7 @@ function renderGrocery(){
     +filterBar
     +(unchecked.length
       ?(F==="all"
-        ?storeSection("🏪 Grocery Store",groceryItems)+storeSection("📦 Costco",costcoItems)
+        ?storeSection("🏪 Grocery Store",groceryOnly)+storeSection("📦 Costco",costcoOnly)+storeSection("🔀 Either store",eitherItems)
         :storeSection(F==="costco"?"📦 Costco":"🏪 Grocery Store",unchecked))
       :'<div class="empty-state"><div class="icon">🛒</div><div>'
         +(S.groceryList.length
