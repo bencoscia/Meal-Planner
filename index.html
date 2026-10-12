@@ -393,6 +393,15 @@ input, select, textarea{font-size:16px!important;}
 .day-actions{display:flex;align-items:center;gap:8px;flex-shrink:0;}
 .recipe-toggle{min-height:40px;width:100%;text-align:left;background:none;border:none;padding:0;font-family:'IBM Plex Sans',sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted);cursor:pointer;}
 .recipe-block.collapsed{padding-top:0;padding-bottom:0;}
+/* ═══ Session C: collapsible inventory categories ═══ */
+.cat-head{display:flex;align-items:center;gap:8px;width:100%;min-height:44px;background:none;border:none;border-bottom:1px solid var(--border);padding:0 4px;cursor:pointer;text-align:left;font-family:'IBM Plex Sans',sans-serif;color:var(--text);}
+.cat-head .cat-name{font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;flex:1;}
+.cat-head .cat-counts{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);}
+.cat-group.collapsed .pantry-list{display:none;}
+.pantry-grid .cat-group{margin-bottom:0;}
+.pantry-grid{row-gap:0;}
+.cat-head .cat-tri{width:14px;color:var(--muted);font-size:12px;flex-shrink:0;}
+.rv-toggles{display:flex;gap:6px;flex-shrink:0;margin-left:auto;}
 @media(max-width:600px){ .day-header{padding:8px 12px 8px 14px;} .week-grid{gap:8px;} }
 /* Phones: tabs become a fixed bottom bar in thumb reach. Active tab = bold +
    filled + a top bar — not hue alone. */
@@ -702,14 +711,15 @@ const S={
                            // (localStorage), not synced. See AUDIT.md §4.
   showSeeds:false,         // seed panel expanded (plan-exists view only) — session-only
   invSearch:"",            // inventory search query — session-only
-  invReview:{},            // {[itemId]: "need"|"dont"|"check"} — weekly review marks. PERSISTED + SYNCED.
-                           // A log of this week's decisions, separate from stock state. See AUDIT.md §4.
+  invReview:{},            // {[itemId]: "check"} — "? Check" flags only. PERSISTED + SYNCED. (Need is derived
+                           // from the grocery list, never stored.) See AUDIT.md §4.
+  invOpenCats:[],          // category names expanded in Inventory — PER-DEVICE localStorage
   invEdit:null,            // {id,name,qty,category} — inventory row being edited (drafts) — session-only
   invUndo:null,            // {item,index} — last deleted pantry item, for the undo toast — session-only
   showInvAdd:false,
   recipeOpen:{},           // {[day | "preview"]: true} — recipe steps expanded — session-only, default collapsed        // inventory add form expanded — session-only
   invReviewMode:false,     // Inventory tab in review mode — session-only
-  invReviewFilter:"all",   // "all"|"unreviewed"|"check" — session-only
+  invReviewFilter:"all",   // "all"|"check"|"onlist" — PER-DEVICE localStorage (as is invReviewMode)
   missingIngredients:[],   // [{text, invId|null, gid|null}] — persisted AND synced (see AUDIT.md §3/§4);
                            // cleared per-entry when its linked pantry item is restocked
   generation:null,         // preview slot for generate-preview-commit steering — session-only (see AUDIT.md §4)
@@ -747,7 +757,11 @@ function loadAll(){
   S.groceryList = ls("groceryList") || [];
   S.missingIngredients = ls("missingIngredients") || [];
   S.dayInstructions = sanitizeDayInstructions(ls("dayInstructions"));
-  S.invReview = ls("invReview") || {};
+  // Old review marks ("need"/"dont") are dropped: only Check is stored now.
+  S.invReview = (()=>{ const r=ls("invReview"), out={}; if(r&&typeof r==="object"&&!Array.isArray(r)) Object.entries(r).forEach(([k,v])=>{ if(v==="check") out[k]=v; }); return out; })();
+  S.invOpenCats = Array.isArray(ls("invOpenCats")) ? ls("invOpenCats").filter(c=>CATEGORIES.includes(c)) : [];
+  S.invReviewMode = ls("invReviewMode")===true;
+  S.invReviewFilter = ["all","check","onlist"].includes(ls("invReviewFilter")) ? ls("invReviewFilter") : "all";
   const sr = ls("scanReview"); S.scanReview = sr===null ? true : !!sr;
   S.groceryFilter = ["all","grocery","costco"].includes(ls("groceryFilter")) ? ls("groceryFilter") : "all";
   S.promptWeek  = ls("promptWeek") || DEFAULT_PROMPT_WEEK;
@@ -932,64 +946,84 @@ function invMatches(item,q){
   return !q || String(item.name||"").toLowerCase().includes(q);
 }
 // ── Weekly review marks ─────────────────────────────────────────────────────
-// S.invReview is a log of THIS WEEK's decisions, separate from stock state:
-// "confirmed fine" vs "not looked at yet" is not representable in `stocked`.
-// Effects on stock/grocery happen ONCE, at tap time, in setReviewMark (the
-// single writer). Values are validated on every read — the map arrives via
-// sync and is not trusted to be well-formed.
-const REVIEW_MARKS=["need","dont","check"];
+// Unmarked = "don't need". Only "? Check" flags are stored (S.invReview,
+// synced); "Need" is derived from the grocery list (onGroceryList) so it can
+// never go stale. toggleReviewNeed has the same semantics as normal-mode Need.
+// Values are validated on every read — the map arrives via sync.
+const REVIEW_MARKS=["check"];
 function reviewMap(){ const r=S.invReview; return (r&&typeof r==="object"&&!Array.isArray(r))?r:{}; }
 function reviewMarkOf(id){ const m=reviewMap()[String(id)]; return REVIEW_MARKS.includes(m)?m:null; }
+// "Need" is DERIVED: an item is needed iff an UNCHECKED grocery entry has its
+// exact (normalized) name. Same name rule as everywhere else in the app.
+function onGroceryList(item){
+  const norm=String(item.name||"").trim().toLowerCase();
+  return S.groceryList.some(g=>!g.checked&&g.text.trim().toLowerCase()===norm);
+}
 function reviewFilterMatches(item){
   if(!S.invReviewMode) return true;
-  const f=S.invReviewFilter, m=reviewMarkOf(item.id);
-  return f==="unreviewed"?!m : f==="check"?m==="check" : true;
+  const f=S.invReviewFilter;
+  return f==="check"?reviewMarkOf(item.id)==="check" : f==="onlist"?onGroceryList(item) : true;
 }
 // Combined visibility: search AND (in review mode) the review filter. Both the
 // render path and the typing DOM patch go through this one function.
 function invVisible(item){ return invMatches(item,S.invSearch)&&reviewFilterMatches(item); }
-function setReviewMark(id,mark){
-  if(!REVIEW_MARKS.includes(mark)) return;
-  const item=S.inventory.find(i=>i.id===id); if(!item) return;
-  const live=new Set(S.inventory.map(i=>String(i.id)));
-  const r={};  // rebuild: drops malformed values and marks for deleted items
+// Any active narrowing forces categories open (a collapsed group can't show a match).
+function invFilterActive(){ return !!S.invSearch.trim() || (S.invReviewMode && S.invReviewFilter!=="all"); }
+function cleanReviewMap(){
+  const live=new Set(S.inventory.map(i=>String(i.id))), r={};
   Object.entries(reviewMap()).forEach(([k,v])=>{ if(live.has(k)&&REVIEW_MARKS.includes(v)) r[k]=v; });
-  const key=String(id);
-  if(r[key]===mark){
-    // Tap the selected mark again = unmark. Deliberately does NOT reverse the
-    // effect — to fix a mis-tapped Need, tap Don't need (it pulls it off the list).
-    delete r[key];
+  return r;
+}
+// 🛒 Need toggle — identical semantics to normal-mode Need:
+//   on  → stocked:false + on the list (re-opens a checked entry rather than duplicating) + clears ? Check
+//   off → unchecked entries for it removed + stocked:true + linked ∅ exclusions cleared
+function toggleReviewNeed(id){
+  const item=S.inventory.find(i=>i.id===id); if(!item) return;
+  const norm=item.name.trim().toLowerCase();
+  const r=cleanReviewMap();
+  if(onGroceryList(item)){
+    S.groceryList=S.groceryList.filter(g=>g.checked||g.text.trim().toLowerCase()!==norm);
+    S.inventory=S.inventory.map(i=>i.id===id?{...i,stocked:true}:i);
+    if(S.missingIngredients.some(m=>m.invId===id)){
+      S.missingIngredients=S.missingIngredients.filter(m=>m.invId!==id);
+      ls("missingIngredients",S.missingIngredients);
+    }
   } else {
-    r[key]=mark;
-    const norm=item.name.trim().toLowerCase();
-    const inGrocery=S.groceryList.some(g=>g.text.trim().toLowerCase()===norm);
-    if(mark==="need"){
-      // Same effect as the normal-mode Need state: unstocked + on the list (deduped).
-      S.inventory=S.inventory.map(i=>i.id===id?{...i,stocked:false}:i);
-      ls("inventory",S.inventory);
-      if(!inGrocery){
-        S.groceryList=[...S.groceryList,{id:Date.now()+Math.random(),text:item.name.trim(),checked:false,source:"pantry",store:"either"}];
-        ls("groceryList",S.groceryList);
-      }
-    } else if(mark==="dont"){
-      // Off the list only. Stock state is left alone: "don't need to buy" is
-      // not a claim that you have it. Checked entries (already bought) stay.
-      if(inGrocery){
-        S.groceryList=S.groceryList.filter(g=>g.text.trim().toLowerCase()!==norm||g.checked);
-        ls("groceryList",S.groceryList);
-      }
-    } // "check": flag only, no stock or grocery effect
+    S.inventory=S.inventory.map(i=>i.id===id?{...i,stocked:false}:i);
+    const checkedIdx=S.groceryList.findIndex(g=>g.checked&&g.text.trim().toLowerCase()===norm);
+    S.groceryList = checkedIdx>=0
+      ? S.groceryList.map((g,i)=>i===checkedIdx?{...g,checked:false}:g)
+      : [...S.groceryList,{id:Date.now()+Math.random(),text:item.name.trim(),checked:false,source:"pantry",store:"either"}];
+    delete r[String(id)];   // deciding "need" resolves a pending check
   }
+  ls("inventory",S.inventory); ls("groceryList",S.groceryList);
   S.invReview=r; ls("invReview",r);
   editSeq++; pushSync(); render();
 }
-function setReviewMode(on){ S.invReviewMode=!!on; if(!on) S.invReviewFilter="all"; render(); }
-function setReviewFilter(f){ if(["all","unreviewed","check"].includes(f)){ S.invReviewFilter=f; render(); } }
+function toggleReviewCheck(id){
+  if(!S.inventory.some(i=>i.id===id)) return;
+  const r=cleanReviewMap(), k=String(id);
+  if(r[k]) delete r[k]; else r[k]="check";
+  setAndSync("invReview",r);
+}
+function setReviewMode(on){ S.invReviewMode=!!on; if(!on) S.invReviewFilter="all"; ls("invReviewMode",S.invReviewMode); ls("invReviewFilter",S.invReviewFilter); render(); }
+function setReviewFilter(f){ if(["all","check","onlist"].includes(f)){ S.invReviewFilter=f; ls("invReviewFilter",f); render(); } }
 function clearReview(){
   const n=S.inventory.filter(i=>reviewMarkOf(i.id)).length;
   if(!n) return;
-  if(!confirm("Clear all "+n+" review marks? Your grocery list and stock states are not changed.")) return;
+  if(!confirm("Clear all "+n+" ? Check flags? Your grocery list and stock are not changed.")) return;
   setAndSync("invReview",{});
+}
+// ── Collapsible categories (per-device) ─────────────────────────────────────
+// Handlers take an index into CATEGORIES, never the name ("Health & Baby").
+function toggleCat(idx){
+  const c=CATEGORIES[idx]; if(!c) return;
+  S.invOpenCats=S.invOpenCats.includes(c)?S.invOpenCats.filter(x=>x!==c):[...S.invOpenCats,c];
+  ls("invOpenCats",S.invOpenCats); render();
+}
+function setAllCats(open){
+  S.invOpenCats=open?CATEGORIES.filter(c=>S.inventory.some(i=>i.category===c)):[];
+  ls("invOpenCats",S.invOpenCats); render();
 }
 
 function invSearchStatusHtml(shown,total){
@@ -997,7 +1031,7 @@ function invSearchStatusHtml(shown,total){
   if(!q){
     // No search, but a review filter can still narrow the view — say so.
     if(S.invReviewMode&&S.invReviewFilter!=="all")
-      return shown?'':'<span>'+(S.invReviewFilter==="check"?'Nothing marked ? Check.':'Every item is reviewed.')+'</span>';
+      return shown?'':'<span>'+(S.invReviewFilter==="check"?'Nothing flagged ? Check.':'Nothing from the pantry is on the grocery list.')+'</span>';
     return "";
   }
   // The query is displayed via esc() and NEVER interpolated into an onclick —
@@ -1014,8 +1048,12 @@ function applyInvSearchDom(){
     const ok=!!it&&invVisible(it);
     r.hidden=!ok; if(ok) shown++;
   });
+  const force=invFilterActive();
   document.querySelectorAll(".pantry-grid .cat-group").forEach(g=>{
     g.hidden=!g.querySelector(".pantry-item:not([hidden])");
+    const open=force||S.invOpenCats.includes(CATEGORIES[+g.dataset.catIdx]);
+    g.classList.toggle("collapsed",!open);
+    const h=g.querySelector(".cat-head"); if(h){ h.setAttribute("aria-expanded",String(open)); const t=h.querySelector(".cat-tri"); if(t) t.textContent=open?"▾":"▸"; }
   });
   const st=document.getElementById("inv-search-status");
   if(st) st.innerHTML=invSearchStatusHtml(shown,S.inventory.length);
@@ -1293,7 +1331,19 @@ function clearCheckedGroceries(){
   const vis=i=>F==="all"?true:F==="grocery"?(i.store||"either")!=="costco":(i.store||"either")!=="grocery";
   const removed=S.groceryList.filter(i=>i.checked&&vis(i));
   if(!removed.length) return;
-  S.groceryUndo={label:"cleared "+removed.length+" checked", type:"removed", items:removed};
+  // "Done shopping" → restock: unstocked pantry items whose exact (normalized)
+  // name matches a cleared item go back In stock, and their linked ∅
+  // exclusions are dropped. Checking off alone never restocks (easy to undo
+  // mid-shop). Exact-name rule only: "Salmon fillets" won't restock "Salmon".
+  const bought=new Set(removed.map(i=>i.text.trim().toLowerCase()));
+  const restockedIds=S.inventory.filter(i=>!isStocked(i)&&bought.has(i.name.trim().toLowerCase())).map(i=>i.id);
+  const rs=new Set(restockedIds);
+  const missingRemoved=S.missingIngredients.filter(m=>rs.has(m.invId));
+  S.groceryUndo={label:"cleared "+removed.length+" checked"+(restockedIds.length?" · restocked "+restockedIds.length:""), type:"removed", items:removed, restockedIds, missingRemoved};
+  if(restockedIds.length){
+    S.inventory=S.inventory.map(i=>rs.has(i.id)?{...i,stocked:true}:i); ls("inventory",S.inventory);
+    if(missingRemoved.length){ S.missingIngredients=S.missingIngredients.filter(m=>!rs.has(m.invId)); ls("missingIngredients",S.missingIngredients); }
+  }
   setAndSync("groceryList", S.groceryList.filter(i=>!(i.checked&&vis(i))));
 }
 
@@ -1417,6 +1467,15 @@ function undoGroceryAction(){
     // Re-add, skipping any the user already re-created by hand (dedupe by text)
     const have=new Set(S.groceryList.map(i=>i.text.trim().toLowerCase()));
     const back=u.items.filter(i=>!have.has(i.text.trim().toLowerCase()));
+    // Reverse a Clear-checked restock too (only items still in stock; ∅ links
+    // re-added only if absent).
+    if(u.restockedIds&&u.restockedIds.length){
+      const rs=new Set(u.restockedIds);
+      S.inventory=S.inventory.map(i=>rs.has(i.id)&&isStocked(i)?{...i,stocked:false}:i); ls("inventory",S.inventory);
+      const haveM=new Set(S.missingIngredients.map(m=>m.invId+"|"+m.text));
+      const mBack=(u.missingRemoved||[]).filter(m=>!haveM.has(m.invId+"|"+m.text));
+      if(mBack.length){ S.missingIngredients=[...S.missingIngredients,...mBack]; ls("missingIngredients",S.missingIngredients); }
+    }
     setAndSync("groceryList", [...S.groceryList, ...back]);
   }
 }
@@ -1913,15 +1972,14 @@ function renderTabs(){
 }
 
 function renderReviewBar(){
-  const marks=S.inventory.map(i=>reviewMarkOf(i.id));
-  const reviewed=marks.filter(Boolean).length, nCheck=marks.filter(m=>m==="check").length,
-        nNeed=marks.filter(m=>m==="need").length, total=S.inventory.length;
+  const nList=S.inventory.filter(onGroceryList).length;
+  const nCheck=S.inventory.filter(i=>reviewMarkOf(i.id)==="check").length;
   const F=S.invReviewFilter;
-  const seg=(id,label,n)=>'<button class="gf-seg'+(F===id?' active':'')+'" aria-pressed="'+(F===id)+'" onclick="setReviewFilter(\''+id+'\')">'+label+' ('+n+')</button>';
+  const seg=(id,label,n)=>'<button class="gf-seg'+(F===id?' active':'')+'" aria-pressed="'+(F===id)+'" onclick="setReviewFilter(\''+id+'\')">'+label+(n===null?'':' ('+n+')')+'</button>';
   return '<div class="card" style="padding:14px 16px">'
-    +'<div class="rv-progress">'+reviewed+' of '+total+' reviewed · '+nNeed+' need · '+nCheck+' to check</div>'
-    +'<div class="gf-bar" style="margin-bottom:8px">'+seg("all","All",total)+seg("unreviewed","Unreviewed",total-reviewed)+seg("check","? To check",nCheck)+'</div>'
-    +(reviewed?'<div style="display:flex;justify-content:flex-end"><button class="link-btn" onclick="clearReview()">Clear review (start next week)</button></div>':'')
+    +'<div class="rv-progress">'+nList+' on list · '+nCheck+' to check</div>'
+    +'<div class="gf-bar" style="margin-bottom:8px">'+seg("all","All",null)+seg("check","? To check",nCheck)+seg("onlist","🛒 On list",nList)+'</div>'
+    +(nCheck?'<div style="display:flex;justify-content:flex-end"><button class="link-btn" onclick="clearReview()">Clear ? Check flags</button></div>':'')
     +'</div>';
 }
 function renderInventory(){
@@ -1930,13 +1988,15 @@ function renderInventory(){
   const groceryNorm=new Set(S.groceryList.map(g=>g.text.trim().toLowerCase()));
 
   // 3-state item row: In stock (🛒) → Need (✓ On list) → Skip (— Skip) → In stock
+  // Review row: unmarked = don't need. Two independent toggles.
   const reviewRow=item=>{
-    const m=reviewMarkOf(item.id);
-    const b=(mark,label)=>'<button class="rv-btn'+(m===mark?' on':'')+'" aria-pressed="'+(m===mark)+'" onclick="setReviewMark('+item.id+',\''+mark+'\')">'+label+'</button>';
-    return '<div class="pantry-item review-row'+(m?' marked':'')+'" data-inv-id="'+item.id+'"'+(invVisible(item)?'':' hidden')+'>'
+    const need=onGroceryList(item), chk=reviewMarkOf(item.id)==="check";
+    return '<div class="pantry-item review-row'+(need||chk?' marked':'')+'" data-inv-id="'+item.id+'"'+(invVisible(item)?'':' hidden')+'>'
       +'<span class="rv-name">'+esc(item.name)+(item.qty?'<span class="rv-qty">'+esc(item.qty)+'</span>':'')+'</span>'
-      +'<div class="rv-seg">'+b("need","🛒 Need")+b("dont","— Don\'t need")+b("check","? Check")+'</div>'
-      +'</div>';
+      +'<div class="rv-toggles">'
+      +'<button class="rv-btn'+(need?' on':'')+'" aria-pressed="'+need+'" onclick="toggleReviewNeed('+item.id+')">'+(need?'✓ ':'')+'🛒 Need</button>'
+      +'<button class="rv-btn'+(chk?' on':'')+'" aria-pressed="'+chk+'" onclick="toggleReviewCheck('+item.id+')">'+(chk?'✓ ':'')+'? Check</button>'
+      +'</div></div>';
   };
   const editRow=item=>{
     const d=S.invEdit;
@@ -1972,11 +2032,21 @@ function renderInventory(){
   };
 
   const shownCount=S.inventory.filter(invVisible).length;
-  const groups=Object.entries(grouped).map(([cat,items])=>
-    '<div class="cat-group"'+(items.some(invVisible)?'':' hidden')+'><div class="cat-label">'+cat+'</div><div class="pantry-list">'
+  const force=invFilterActive();
+  const groups=Object.entries(grouped).map(([cat,items])=>{
+    const idx=CATEGORIES.indexOf(cat);
+    const open=force||S.invOpenCats.includes(cat)||(S.invEdit&&items.some(i=>i.id===S.invEdit.id));
+    const nList=items.filter(onGroceryList).length;
+    const nChk=S.invReviewMode?items.filter(i=>reviewMarkOf(i.id)==="check").length:0;
+    const counts=items.length+' item'+(items.length===1?'':'s')+(nList?' · '+nList+' on list':'')+(nChk?' · '+nChk+' to check':'');
+    return '<div class="cat-group'+(open?'':' collapsed')+'" data-cat-idx="'+idx+'"'+(items.some(invVisible)?'':' hidden')+'>'
+    +'<button class="cat-head" aria-expanded="'+open+'" onclick="toggleCat('+idx+')"><span class="cat-tri">'+(open?'▾':'▸')+'</span><span class="cat-name">'+esc(cat)+'</span><span class="cat-counts">'+counts+'</span></button>'
+    +'<div class="pantry-list">'
     +items.map(itemRow).join("")
-    +'</div></div>'
-  ).join("");
+    +'</div></div>';
+  }).join("");
+  const presentCats=CATEGORIES.filter(c=>grouped[c]);
+  const allOpen=presentCats.every(c=>S.invOpenCats.includes(c));
 
   // Count items in Skip state (unstocked but NOT on grocery list) for bulk action
   const skipCount=S.inventory.filter(i=>!isStocked(i)&&!groceryNorm.has(i.name.trim().toLowerCase())).length;
@@ -1990,7 +2060,7 @@ function renderInventory(){
     +(S.scriptUrl?'<button class="btn btn-secondary" style="font-size:12px;padding:5px 11px" onclick="fetchSync()">'+( S.syncing?'↻ Syncing…':'↻ Sync now')+'</button>':"")
     +'</div></div>'
     +(S.invReviewMode
-      ?'<p class="section-desc">Work down the list. 🛒 Need adds an item to the grocery list; — Don\'t need takes it off; ? Check flags it for a look in the pantry or freezer. Tap a selected mark again to unmark. Marks stay until you clear them.</p>'
+      ?'<p class="section-desc">Anything you don\'t mark is “don\'t need.” Tap 🛒 Need to put an item on the grocery list (tap again to take it off), or ? Check to flag it for a look in the pantry or freezer.</p>'
        +renderReviewBar()
       :'<p class="section-desc">Tap 🛒 Need to add to your grocery list. Tap again to skip, or a third time to restock. Items marked Need or Skip are excluded from AI meal planning. Tap a name to edit or delete it.</p>')
     +(S.inventory.length?'<div class="card" style="padding:14px 16px">'
@@ -2009,7 +2079,13 @@ function renderInventory(){
     +(S.inventory.length?'<div style="display:flex;justify-content:flex-end;margin-top:6px"><button class="link-btn" onclick="toggleInvAdd()">Close</button></div>':'')
     +(S.inventory.length===0?'<div class="empty-state"><div class="icon">🫙</div><div>Add your first item, or continue and the AI will assume a well-stocked kitchen.</div></div>':"")
     +'</div>')
-    +(S.inventory.length>0?'<div class="pantry-grid">'+groups+'</div>':"")
+    +(S.inventory.length>0
+      ?'<div style="display:flex;justify-content:flex-end;margin-bottom:4px">'
+        +(force?'<span class="section-desc" style="font-size:12px;margin:0;align-self:center">Showing matches in every category</span>'
+          :'<button class="link-btn" onclick="setAllCats('+(!allOpen)+')">'+(allOpen?'Collapse all':'Expand all')+'</button>')
+        +'</div>'
+        +'<div class="pantry-grid">'+groups+'</div>'
+      :"")
     +(S.invUndo?'<div class="toast" role="status"><span>Deleted “'+esc(S.invUndo.item.name)+'”</span><button onclick="undoInvDelete()">↶ Undo</button><button aria-label="Dismiss" onclick="dismissInvUndo()">✕</button></div>':'')
     +'</div>';
 }
