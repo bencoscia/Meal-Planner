@@ -373,6 +373,27 @@ input, select, textarea{font-size:16px!important;}
 .toast span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .toast button{min-height:40px;background:transparent;color:inherit;border:1.5px solid currentColor;border-radius:8px;padding:0 12px;font-weight:700;font-size:14px;cursor:pointer;flex-shrink:0;}
 .tab-ico{margin-right:6px;}
+/* ═══ Session B: grocery list built for the store ═══ */
+.grocery-item[role="checkbox"]{cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;min-height:48px;}
+.grocery-item[role="checkbox"]:active{background:var(--bg);}
+.grocery-item[role="checkbox"] .grocery-text{font-size:16px;}
+.g-more{min-width:44px;min-height:40px;flex-shrink:0;background:none;border:none;color:var(--muted);font-size:20px;line-height:1;cursor:pointer;border-radius:8px;}
+.grocery-item.editing{flex-wrap:wrap;background:var(--bg);border-radius:8px;padding:10px;gap:8px;}
+.grocery-item.editing .ged-name, .grocery-item.editing .ged-qty{flex:1 1 100%;width:auto;}
+.ged-store{display:flex;gap:6px;width:100%;}
+.ged-store .rv-btn{flex:1;}
+.gadd-row{display:flex;gap:8px;align-items:center;margin-bottom:12px;}
+.gadd-row .fi{flex:1;min-width:0;}
+.gadd-row .btn{flex-shrink:0;}
+.more-add{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+/* ═══ Meal plan: whole week at a glance ═══ */
+.day-header{gap:10px;}
+.day-title{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;}
+.day-dish{font-size:14px;color:var(--text);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.day-actions{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.recipe-toggle{min-height:40px;width:100%;text-align:left;background:none;border:none;padding:0;font-family:'IBM Plex Sans',sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted);cursor:pointer;}
+.recipe-block.collapsed{padding-top:0;padding-bottom:0;}
+@media(max-width:600px){ .day-header{padding:8px 12px 8px 14px;} .week-grid{gap:8px;} }
 /* Phones: tabs become a fixed bottom bar in thumb reach. Active tab = bold +
    filled + a top bar — not hue alone. */
 @media(max-width:700px){
@@ -685,7 +706,8 @@ const S={
                            // A log of this week's decisions, separate from stock state. See AUDIT.md §4.
   invEdit:null,            // {id,name,qty,category} — inventory row being edited (drafts) — session-only
   invUndo:null,            // {item,index} — last deleted pantry item, for the undo toast — session-only
-  showInvAdd:false,        // inventory add form expanded — session-only
+  showInvAdd:false,
+  recipeOpen:{},           // {[day | "preview"]: true} — recipe steps expanded — session-only, default collapsed        // inventory add form expanded — session-only
   invReviewMode:false,     // Inventory tab in review mode — session-only
   invReviewFilter:"all",   // "all"|"unreviewed"|"check" — session-only
   missingIngredients:[],   // [{text, invId|null, gid|null}] — persisted AND synced (see AUDIT.md §3/§4);
@@ -1405,17 +1427,33 @@ function undoGroceryAction(){
 function editGroceryItem(id){
   const item=S.groceryList.find(i=>i.id===id);
   if(!item) return;
-  S.editingGrocery={id, text:item.text, qty:item.qty||""};
+  S.editingGrocery={id, text:item.text, qty:item.qty||"", store:["grocery","costco","either"].includes(item.store)?item.store:"either"};
+  // No autofocus: the editor is also how you change store or delete, and
+  // popping the keyboard for those is noise.
   render();
-  const el=document.getElementById("ged-name");
-  if(el){ el.focus(); try{el.setSelectionRange(el.value.length,el.value.length);}catch(e){} }
 }
-function cancelGroceryEdit(){ S.editingGrocery=null; render(); }
+// Store choice inside the editor: DOM patch, no render — the name/qty inputs
+// may be focused (Guard 1), and their drafts live in S.editingGrocery anyway.
+function setEditGroceryStore(v){
+  if(!S.editingGrocery||!["grocery","costco","either"].includes(v)) return;
+  S.editingGrocery.store=v;
+  document.querySelectorAll("[data-ged-store]").forEach(b=>{
+    const on=b.dataset.gedStore===v; b.classList.toggle("on",on); b.setAttribute("aria-pressed",String(on));
+  });
+}
+function deleteGroceryFromEditor(id){
+  S.editingGrocery=null;
+  if(document.activeElement&&document.activeElement.blur) document.activeElement.blur();
+  removeGroceryItem(id);   // sets the single-slot undo → toast
+}
+function cancelGroceryEdit(){ S.editingGrocery=null; if(document.activeElement&&document.activeElement.blur) document.activeElement.blur(); render(); }
 function commitGroceryEdit(){
   const d=S.editingGrocery;
   if(!d) return;
   S.editingGrocery=null;
+  if(document.activeElement&&document.activeElement.blur) document.activeElement.blur();
   const text=d.text.trim(), qty=d.qty.trim();
+  const store=["grocery","costco","either"].includes(d.store)?d.store:null;
   if(!S.groceryList.some(i=>i.id===d.id)){ render(); return; }  // deleted remotely mid-edit
   if(!text){ render(); return; }                                 // never commit an empty name
   // Rename-collision merge: renaming "chikn" → "chicken" when "chicken" already
@@ -1427,7 +1465,7 @@ function commitGroceryEdit(){
   const mergedQty=qty||(dup&&dup.qty)||"";
   setAndSync("groceryList", S.groceryList
     .filter(i=>!(dup&&i.id===dup.id))
-    .map(i=>i.id===d.id?{...i, text, qty:mergedQty}:i));
+    .map(i=>i.id===d.id?{...i, text, qty:mergedQty, ...(store?{store}:{})}:i));
 }
 // ── Shopping-list provenance ──────────────────────────────────────────────────
 // shopping_list items are {text, day|null}: day names the steering commit that
@@ -2058,7 +2096,13 @@ function renderPreferencesModal(){
     +'</div></div>';
 }
 
-function renderMealCard(meal, day){
+function toggleRecipe(key){
+  if(!(DAYS.includes(key)||key==="preview")) return;   // key is interpolated into onclick — whitelist
+  S.recipeOpen={...S.recipeOpen,[key]:!S.recipeOpen[key]};
+  if(document.activeElement&&document.activeElement.blur) document.activeElement.blur();
+  render();
+}
+function renderMealCard(meal, day, recipeKey){
   if(!meal)return '<div style="font-size:13px;color:var(--muted);font-style:italic">No meal planned</div>';
   // Security note: the onclick below interpolates only `day` (whitelisted via
   // normalizeDays) and a numeric index — never the AI-supplied ingredient text.
@@ -2077,6 +2121,11 @@ function renderMealCard(meal, day){
     return '<div class="ing-row'+(need?" need":"")+(missing?" missing":"")+'">'
       +'<span class="ing-text">'+esc(need?"🛒 "+text:text)+'</span>'+btn+'</div>';
   }).join("");
+  const nSteps=(meal.recipe||[]).length;
+  // Recipe is collapsed by default (state in S.recipeOpen, not <details>, so a
+  // sync-poll re-render can't snap an open recipe shut while you're reading it).
+  const rk=recipeKey||day;
+  const recipeOpen=!rk||!!S.recipeOpen[rk];
   const steps=(meal.recipe||[]).map((s,i)=>'<div class="recipe-step"><span class="step-num">'+(i+1)+'</span><span>'+esc(s)+'</span></div>').join("");
   const n=meal.nutrition;
   const nutriChip=(num,label)=>'<span class="nutri-chip"><span class="nutri-num">'+num+'</span><span class="nutri-label">'+label+'</span></span>';
@@ -2091,7 +2140,12 @@ function renderMealCard(meal, day){
   return '<div class="meal-name">'+esc(meal.name)+'</div>'
     +nutritionHtml
     +'<div class="ing-list">'+ings+'</div>'
-    +(steps?'<div class="recipe-block"><div class="recipe-title">Recipe</div>'+steps+'</div>':"");
+    +(steps
+      ?(rk
+        ?'<div class="recipe-block'+(recipeOpen?'':' collapsed')+'"><button class="recipe-toggle" aria-expanded="'+recipeOpen+'" onclick="toggleRecipe(\''+rk+'\')">'
+          +(recipeOpen?'▾':'▸')+' Recipe · '+nSteps+' step'+(nSteps===1?'':'s')+'</button>'+(recipeOpen?steps:'')+'</div>'
+        :'<div class="recipe-block"><div class="recipe-title">Recipe</div>'+steps+'</div>')
+      :"");
 }
 
 function renderQuickMeals(){
@@ -2139,7 +2193,7 @@ function renderPreview(day){
     +'<div class="preview-diff"><span class="old">'+esc(oldName)+'</span><span class="arrow">→</span><strong>'+esc(g.candidate.dinner.name)+'</strong></div>'
     +(g.steering?'<div class="preview-adds">Steered by: “'+esc(g.steering)+'”</div>':"")
     +(g.fixedOverridden?'<div class="preview-adds">⚠ Fixed meal for this day skipped — it needs an ingredient marked ∅ unavailable</div>':"")
-    +renderMealCard(g.candidate.dinner)
+    +renderMealCard(g.candidate.dinner, undefined, "preview")
     +(adds.length?'<div class="preview-adds">+ adds: '+esc(adds.join(", "))+'</div>':"")
     +(removes.length?'<div class="preview-adds">− removes (from the replaced meal): '+esc(removes.join(", "))+'</div>':"")
     +(!adds.length&&!removes.length?'<div class="preview-adds">No shopping-list changes</div>':"")
@@ -2153,7 +2207,7 @@ function renderDayCard(dayData, isHero){
   const gen=S.generation&&S.generation.status==="preview"&&S.generation.day===dayData.day?S.generation:null;
   // An open preview forces the card open — accept/reject is a decision the
   // user must be able to see, regardless of accordion state.
-  const open=isHero||S.expandedDay===dayData.day||!!gen;
+  const open=S.expandedDay===dayData.day||!!gen;   // every card, incl. Today, collapsed by default
   const dinner=dayData.dinner||(dayData.meals?.dinner);
   const isRegen=S.regenDay===dayData.day;
   const noteVal=S.dayInstructions[dayData.day]||"";
@@ -2173,15 +2227,17 @@ function renderDayCard(dayData, isHero){
     +'onclick="generateCandidate(\''+dayData.day+'\')" '+(isRegen?"disabled":"")+'>↻ Redo</button>'
     +'</div></div>';
   return '<div class="day-card'+(isHero?" hero-day":"")+'">'
-    +'<div class="day-header"'+(isHero?"":' onclick="toggleDay(\''+dayData.day+'\')"')+'>'
-    +'<span class="day-name">'+(isHero?(dayData.day===todayDayName()?"Today · ":"Tomorrow · "):"")+dayData.day+'</span>'
-    +'<div style="display:flex;align-items:center;gap:8px">'
-    +(isRegen?'<span style="font-size:12px;color:var(--muted)">Regenerating…</span>'
-      :(dinner&&!isHero?'<span class="meal-badge">'+esc(dinner.name)+'</span>':""))
+    +'<div class="day-header" role="button" aria-expanded="'+open+'" onclick="toggleDay(\''+dayData.day+'\')">'
+    +'<div class="day-title"><span class="day-name">'+(isHero?(dayData.day===todayDayName()?"Today · ":"Tomorrow · "):"")+dayData.day+'</span>'
+    // Collapsed: the dish name is the point of the row. Open: the card body names it.
+    +(isRegen?'<span class="day-dish" style="color:var(--muted)">Regenerating…</span>'
+      :(!open?'<span class="day-dish">'+(dinner?esc(dinner.name):'<em style="color:var(--muted)">No meal planned</em>')+'</span>':''))
+    +'</div>'
+    +'<div class="day-actions">'
     +'<button class="day-redo-btn" title="Suggest a different dinner" aria-label="Suggest a different dinner for '+dayData.day+'" '
     +'onclick="event.stopPropagation();generateCandidate(\''+dayData.day+'\')" '
     +(isRegen?'disabled ':'')+'>↻</button>'
-    +(isHero?"":'<span class="chevron'+(open?" open":"")+'">▼</span>')
+    +'<span class="chevron'+(open?" open":"")+'">▼</span>'
     +'</div></div>'
     +'<div class="day-meals'+(open?" open":"")+'"><div class="meal-row">'
     +'<div class="meal-type">Dinner</div>'
@@ -2295,24 +2351,28 @@ function renderGrocery(){
     if(ed&&ed.id===item.id){
       // Edit mode: name + qty drafts bind oninput to S.editingGrocery (no
       // render while typing — Guard 1); Enter/✓ commits, ✕ cancels.
+        const sb=(v,l)=>'<button class="rv-btn'+(ed.store===v?' on':'')+'" data-ged-store="'+v+'" aria-pressed="'+(ed.store===v)+'" onclick="setEditGroceryStore(\''+v+'\')">'+l+'</button>';
       return '<div class="grocery-item editing">'
         +'<input id="ged-name" class="fi ged-name" value="'+esc(ed.text)+'" placeholder="Item name" '
         +'oninput="S.editingGrocery.text=this.value" onkeydown="if(event.key===\'Enter\')commitGroceryEdit();if(event.key===\'Escape\')cancelGroceryEdit()">'
-        +'<input class="fi ged-qty" value="'+esc(ed.qty)+'" placeholder="qty (opt.)" '
+        +'<input class="fi ged-qty" value="'+esc(ed.qty)+'" placeholder="Qty (optional)" '
         +'oninput="S.editingGrocery.qty=this.value" onkeydown="if(event.key===\'Enter\')commitGroceryEdit();if(event.key===\'Escape\')cancelGroceryEdit()">'
-        +'<button class="btn btn-primary ged-btn" onclick="commitGroceryEdit()">✓</button>'
-        +'<button class="btn btn-secondary ged-btn" onclick="cancelGroceryEdit()">✕</button>'
-        +'</div>';
+        +'<div class="ged-store" role="group" aria-label="Store">'+sb("grocery","🏪 Grocery")+sb("costco","📦 Costco")+sb("either","🔀 Either")+'</div>'
+        +'<div class="ied-actions">'
+        +'<button class="btn btn-primary" onclick="commitGroceryEdit()">✓ Save</button>'
+        +'<button class="btn btn-secondary" onclick="cancelGroceryEdit()">Cancel</button>'
+        +'<button class="btn btn-secondary ied-del" onclick="deleteGroceryFromEditor('+item.id+')">🗑 Delete</button>'
+        +'</div></div>';
     }
-    return '<div class="grocery-item'+(item.checked?" checked":"")+'">'
-    +'<label class="grocery-check">'
-    +'<input type="checkbox" style="display:none" '+(item.checked?"checked":"")+' onchange="toggleGroceryChecked('+item.id+')">'
+    // Whole row is the check target (role=checkbox); ⋯ opens the editor and
+    // stops propagation so it never also toggles the row.
+    return '<div class="grocery-item'+(item.checked?" checked":"")+'" role="checkbox" aria-checked="'+!!item.checked+'" tabindex="0" '
+    +'onclick="toggleGroceryChecked('+item.id+')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();toggleGroceryChecked('+item.id+')}">'
+    +'<span class="grocery-check" aria-hidden="true">'
     +'<span class="grocery-checkmark"><svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 8.5L6.5 12L13 4.5" stroke="white" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'
-    +'</label>'
+    +'</span>'
     +'<span class="grocery-text">'+esc(item.text)+(item.qty?'<span class="grocery-qty"> · '+esc(item.qty)+'</span>':"")+'</span>'
-    +'<button class="ged-open" title="Edit name / quantity" onclick="editGroceryItem('+item.id+')">✎</button>'
-    +(!item.checked?'<button class="grocery-store-tag" onclick="cycleGroceryStore('+item.id+')" title="Tap to change store">'+storeLabel(item.store)+'</button>':"")
-    +'<button class="rm-btn" onclick="removeGroceryItem('+item.id+')">×</button>'
+    +'<button class="g-more" aria-label="Edit, change store, or delete" title="Edit, change store, or delete" onclick="event.stopPropagation();editGroceryItem('+item.id+')">⋯</button>'
     +'</div>';
   };
 
@@ -2346,19 +2406,13 @@ function renderGrocery(){
     +'<div class="toolbar"><h2 class="section-title">Grocery List</h2>'
     +(S.groceryList.length?'<span class="inv-count">'+unchecked.length+' to get'+(F==="all"?"":F==="costco"?" at Costco":" at the store")+'</span>':"")
     +'</div>'
-    +'<p class="section-desc">Synced with your household'+(S.scriptUrl?' — say "Hey Siri, Groceries" to add by voice.':'.')+'</p>'
     +'<div class="card">'
-    +'<div class="add-row">'
-    +'<input class="fi" style="flex:1" placeholder="Add an item..." value="'+esc(S.newGroceryItem||"")+'" oninput="S.newGroceryItem=this.value" onkeydown="if(event.key===\'Enter\')addGroceryFromInput()">'
-    +'<button class="grocery-store-tag" onclick="cycleNewGroceryStore()" title="Tap to change store" style="flex-shrink:0">'+storeLabel(S.newGroceryStore)+'</button>'
+    // One compact add row; secondary ways to add live below the list.
+    +'<div class="gadd-row">'
+    +'<input class="fi" placeholder="Add an item…" value="'+esc(S.newGroceryItem||"")+'" oninput="S.newGroceryItem=this.value" onkeydown="if(event.key===\'Enter\')addGroceryFromInput()">'
+    +'<button class="grocery-store-tag" onclick="cycleNewGroceryStore()" title="Store for new items — tap to change">'+storeLabel(S.newGroceryStore)+'</button>'
     +'<button class="btn btn-primary" onclick="addGroceryFromInput()">+ Add</button>'
     +'</div>'
-    +'<input type="file" id="scan-input" accept="image/*" capture="environment" style="display:none" onchange="handleScanFile(this.files[0]);this.value=\'\'">'
-    +'<button class="btn btn-secondary" style="font-size:13px;margin-bottom:16px;margin-right:8px" '+(S.scanning?"disabled":"")+' onclick="document.getElementById(\'scan-input\').click()">'+(S.scanning?"⏳ Reading photo…":"📷 Scan paper list")+'</button>'
-    +(S.scanError?'<div class="scan-error">⚠ '+esc(S.scanError)+'</div>':"")
-    +renderScanReview()
-    +(hasPlanItems?'<button class="btn btn-secondary" style="font-size:13px;margin-bottom:16px;margin-right:8px" onclick="importPlanGroceries()">↓ Add items from meal plan</button>':"")
-    +(S.groceryUndo?'<button class="btn btn-secondary" style="font-size:13px;margin-bottom:16px" onclick="undoGroceryAction()">↶ Undo: '+esc(S.groceryUndo.label)+'</button>':"")
     +filterBar
     +(unchecked.length
       ?(F==="all"
@@ -2378,7 +2432,19 @@ function renderGrocery(){
         +'<div class="grocery-list">'+checked.map(itemRow).join("")+'</div>'
         +'</div>'
       :"")
-    +'</div></div>';
+    +'</div>'
+    +'<div class="card"><div class="cat-label" style="margin-bottom:10px">More ways to add</div>'
+    +'<input type="file" id="scan-input" accept="image/*" capture="environment" style="display:none" onchange="handleScanFile(this.files[0]);this.value=\'\'">'
+    +'<div class="more-add">'
+    +'<button class="btn btn-secondary" '+(S.scanning?"disabled":"")+' onclick="document.getElementById(\'scan-input\').click()">'+(S.scanning?"⏳ Reading photo…":"📷 Scan paper list")+'</button>'
+    +(hasPlanItems?'<button class="btn btn-secondary" onclick="importPlanGroceries()">↓ Add items from meal plan</button>':"")
+    +'</div>'
+    +(S.scanError?'<div class="scan-error" style="margin-top:10px">⚠ '+esc(S.scanError)+'</div>':"")
+    +renderScanReview()
+    +(S.scriptUrl?'<p class="section-desc" style="margin:10px 0 0;font-size:13px">Or say “Hey Siri, Groceries” to add by voice. Synced with your household.</p>':'')
+    +'</div>'
+    +(S.groceryUndo?'<div class="toast" role="status"><span>'+esc(S.groceryUndo.label)+'</span><button onclick="undoGroceryAction()">↶ Undo</button><button aria-label="Dismiss" onclick="S.groceryUndo=null;render()">✕</button></div>':'')
+    +'</div>';
 }
 
 
