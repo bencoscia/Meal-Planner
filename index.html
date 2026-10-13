@@ -1549,6 +1549,13 @@ function undoGroceryAction(){
   if(u.type==="added"){
     const ids=new Set(u.ids);
     setAndSync("groceryList", S.groceryList.filter(i=>!ids.has(i.id)));
+  }else if(u.type==="plansync"){
+    // Drop what the sync added (only if still unchecked — bought is bought),
+    // re-add what it removed unless re-created since.
+    const ids=new Set(u.ids);
+    const base=S.groceryList.filter(i=>!(ids.has(i.id)&&!i.checked));
+    const have=new Set(base.map(i=>i.text.trim().toLowerCase()));
+    setAndSync("groceryList",[...base,...u.items.filter(i=>!have.has(i.text.trim().toLowerCase()))]);
   }else{
     // Re-add, skipping any the user already re-created by hand (dedupe by text)
     const have=new Set(S.groceryList.map(i=>i.text.trim().toLowerCase()));
@@ -1638,6 +1645,46 @@ function importPlanGroceries(){
   if(!added.length) return;
   S.groceryUndo={label:"added "+added.length+" from meal plan", type:"added", ids:added.map(a=>a.id)};
   setAndSync("groceryList", [...S.groceryList, ...added]);
+}
+
+// ── One shopping list (Session D) ────────────────────────────────────────────
+// The grocery list is the ONLY shopping list. S.mealPlan.shopping_list is the
+// plan's record of what it needs (kept correct per day by the provenance swap
+// in commitGeneration); this function projects it onto the grocery list.
+// Called after every plan change (full-week generate, per-day commit) and by
+// the Plan tab's "Add" link. It:
+//   ADDS    plan items with no grocery entry at all (checked or unchecked) and
+//           no on-hand pantry item of the same name (onHand — the same rule the
+//           planner uses);
+//   REMOVES unchecked entries tagged source:"plan" that the plan no longer needs;
+//   NEVER   touches checked (bought) entries or entries from any other source.
+// The whole change is one undo slot (S.groceryUndo type "plansync").
+function planShoppingWant(){
+  const out=new Map();
+  (S.mealPlan?.shopping_list||[]).forEach(i=>{
+    const text=stripQty(shopText(i)).trim(), norm=text.toLowerCase();
+    if(norm&&!out.has(norm)) out.set(norm,text);
+  });
+  return out;   // norm → display text
+}
+function syncPlanToGrocery(){
+  if(!S.mealPlan) return null;
+  const want=planShoppingWant();
+  const haveOnHand=new Set(S.inventory.filter(onHand).map(i=>i.name.trim().toLowerCase()));
+  const norm=g=>g.text.trim().toLowerCase();
+  const removed=S.groceryList.filter(g=>g.source==="plan"&&!g.checked&&!want.has(norm(g)));
+  const kept=S.groceryList.filter(g=>!removed.includes(g));
+  const present=new Set(kept.map(norm));
+  const added=[];
+  want.forEach((text,n)=>{
+    if(present.has(n)||haveOnHand.has(n)) return;
+    present.add(n);
+    added.push({id:Date.now()+Math.random(),text,checked:false,source:"plan",store:"either"});
+  });
+  if(!added.length&&!removed.length) return {added:0,removed:0};
+  S.groceryUndo={type:"plansync",label:"plan: +"+added.length+" / −"+removed.length,ids:added.map(a=>a.id),items:removed};
+  setAndSync("groceryList",[...kept,...added]);
+  return {added:added.length,removed:removed.length};
 }
 
 function resetHousehold(){
@@ -1839,6 +1886,7 @@ function commitGeneration(id){
   // candidate object, byte-for-byte, no re-serialization.
   setAndSync("mealPlan",{...S.mealPlan, days:updatedDays, shopping_list:[...kept,...added]});
   S.generation=null;
+  syncPlanToGrocery();   // one shopping list: swap this day's items on the grocery list too
 }
 
 function rejectGeneration(id){
@@ -1950,8 +1998,17 @@ async function generatePlan(){
     const p1=cleanJson(res1), p2=cleanJson(res2);
     const allDays=normalizeDays([...(p1.days||[]),...(p2.days||[])]);
     allDays.sort((a,b)=>DAYS.indexOf(a.day)-DAYS.indexOf(b.day));
+    // Attribute each week-level item to a day when it matches exactly one
+    // day's *-marked (to-buy) ingredients, so a later per-day commit's
+    // provenance swap can remove it with the meal it belonged to. Shared or
+    // unmatched items stay day:null (cleaned up by the next full-week generate).
+    const toBuyByDay=allDays.map(d=>({day:d.day,ings:((d.dinner||d.meals?.dinner||{}).ingredients||[]).map(String).filter(x=>x.trim().startsWith("*")).map(x=>x.toLowerCase())}));
     const shopping=[...new Set([...(p1.shopping_list||[]),...(p2.shopping_list||[])]
-      .map(t=>String(t).trim()).filter(Boolean))].map(text=>({text, day:null}));
+      .map(t=>String(t).trim()).filter(Boolean))].map(text=>{
+        const n=text.toLowerCase();
+        const days=n.length>=3?toBuyByDay.filter(x=>x.ings.some(ing=>ing.includes(n))).map(x=>x.day):[];
+        return {text, day:days.length===1?days[0]:null};
+      });
     // Normalise: support both {dinner:{...}} and {meals:{dinner:{...}}} from Gemini
     allDays.forEach(d=>{
       if(!d.dinner && d.meals?.dinner) d.dinner=d.meals.dinner;
@@ -1964,6 +2021,7 @@ async function generatePlan(){
     S.generation=null;  // a preview diffed against the old plan is meaningless now
     S.mealPlan={days:allDays,shopping_list:shopping};
     setAndSync("mealPlan",S.mealPlan);
+    syncPlanToGrocery();   // one shopping list
     S.view="plan";
   }catch(e){S.generateError="Error: "+e.message+(S.mealPlan&&!/kept your current plan/.test(e.message)?" (Your current plan is unchanged.)":"");}
   S.loading=false; render();
@@ -2431,12 +2489,11 @@ function renderSeedPanel(collapsible){
 
 function renderPlanTab(){
   const noKey=!geminiKey();
-  const summary=renderPrefsSummary();
   const warn=noKey?'<div class="warn-banner">⚠️ No Gemini API key — tap ⚙ Settings before generating.</div>':"";
 
   if(!S.mealPlan){
     return '<div class="content">'
-      +summary+warn
+      +warn
       +renderSeedPanel(false)
       +'<div class="card" style="text-align:center;padding:40px 24px">'
       +'<div style="font-size:36px;margin-bottom:10px">🍽️</div>'
@@ -2454,14 +2511,27 @@ function renderPlanTab(){
   const heroHtml=todayData?renderDayCard(todayData,true):"";
   const restHtml=restDays.map(d=>renderDayCard(d,false)).join("");
 
-  const shopping=S.mealPlan.shopping_list?.length
-    ?'<div class="shopping-card"><div class="shopping-title">🛒 Shopping List</div><div class="shopping-grid">'
-      +S.mealPlan.shopping_list.map(i=>'<span class="shop-item">'+esc(shopText(i))+'</span>').join("")
-      +'</div></div>':"";
+  // One shopping list: no chips here — a status line pointing at the grocery list.
+  const want=planShoppingWant();
+  const shopping=want.size?(()=>{
+    const gl=new Map(); S.groceryList.forEach(g=>{ const n=g.text.trim().toLowerCase(); if(!gl.has(n)||!g.checked) gl.set(n,g); });
+    const haveOnHand=new Set(S.inventory.filter(onHand).map(i=>i.name.trim().toLowerCase()));
+    let onList=0, bought=0, missing=0, skipped=0;
+    want.forEach((t,n)=>{ const g=gl.get(n); if(g) (g.checked?bought++:onList++); else if(haveOnHand.has(n)) skipped++; else missing++; });
+    return '<div class="card" style="padding:12px 16px;margin-top:12px;font-size:14px">'
+      +'<div>🛒 <b>'+onList+'</b> item'+(onList===1?'':'s')+' from this plan '+(onList===1?'is':'are')+' on your grocery list'+(bought?' · '+bought+' bought':'')+'.</div>'
+      +(missing?'<div style="margin-top:4px">'+missing+' not on the list yet.</div>':'')
+      // Never drop silently: items the sync skipped because the pantry says ✓ Have.
+      +(skipped?'<div style="margin-top:4px;color:var(--muted);font-size:13px">'+skipped+' skipped — the pantry says you have '+(skipped===1?'it':'them')+'. Mark — Out in Inventory to add.</div>':'')
+      +'<div style="display:flex;gap:16px;margin-top:6px">'
+      +'<button class="link-btn" onclick="setView(\'grocery\')">View grocery list</button>'
+      +(missing?'<button class="link-btn" onclick="syncPlanToGrocery()">Add '+missing+' to list</button>':'')
+      +'</div></div>';
+  })():"";
 
   return '<div class="content">'
-    +summary+warn
-    +'<p class="section-desc" style="margin-top:-8px;margin-bottom:16px;font-size:12px">🛒 = needs shopping</p>'
+    +warn
+    +'<p class="section-desc" style="margin-top:4px;margin-bottom:12px;font-size:12px">🛒 = needs shopping</p>'
     +(heroHtml?'<div class="cat-label">'+(heroIsTomorrow?"Tomorrow":"Today")+'</div>'+heroHtml:"")
     +'<div style="display:flex;justify-content:space-between;align-items:center;margin:24px 0 10px">'
     +'<h2 class="section-title" style="margin-bottom:0">This Week</h2>'
@@ -2535,7 +2605,6 @@ function renderGrocery(){
     +'</div>';
   };
 
-  const hasPlanItems=S.mealPlan?.shopping_list?.length>0;
 
   // Segmented store filter with live counts; active segment is bold + filled —
   // state also carried by the count text and the section headers that follow.
@@ -2596,7 +2665,6 @@ function renderGrocery(){
     +'<input type="file" id="scan-input" accept="image/*" capture="environment" style="display:none" onchange="handleScanFile(this.files[0]);this.value=\'\'">'
     +'<div class="more-add">'
     +'<button class="btn btn-secondary" '+(S.scanning?"disabled":"")+' onclick="document.getElementById(\'scan-input\').click()">'+(S.scanning?"⏳ Reading photo…":"📷 Scan paper list")+'</button>'
-    +(hasPlanItems?'<button class="btn btn-secondary" onclick="importPlanGroceries()">↓ Add items from meal plan</button>':"")
     +'</div>'
     +(S.scanError?'<div class="scan-error" style="margin-top:10px">⚠ '+esc(S.scanError)+'</div>':"")
     +renderScanReview()
